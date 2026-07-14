@@ -1,0 +1,1337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <title>Argus — AML Intelligence Platform</title>
+  <meta name="description" content="Real-time anti-money laundering detection powered by a Multi-GNN that scores every transaction edge directly on the graph." />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    /* ── TOKENS ── */
+    :root {
+      --bg:         #070B14;
+      --surface:    #0D1627;
+      --surface-2:  #121E36;
+      --border:     #1A2744;
+      --border-lt:  #243457;
+      --text:       #E2ECF8;
+      --text-2:     #9EB0CC;
+      --text-3:     #556880;
+      --cyan:       #00C2FF;
+      --cyan-dim:   rgba(0,194,255,.12);
+      --cyan-glow:  rgba(0,194,255,.25);
+      --amber:      #F59E0B;
+      --amber-dim:  rgba(245,158,11,.12);
+      --amber-glow: rgba(245,158,11,.3);
+      --red:        #EF4444;
+      --green:      #10B981;
+      --sans:       'Inter', system-ui, sans-serif;
+      --mono:       'Space Mono', 'Courier New', monospace;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 15px;
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    /* ── ANNOUNCEMENT BANNER ── */
+    .banner {
+      background: linear-gradient(90deg, rgba(0,194,255,.08) 0%, rgba(245,158,11,.06) 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 10px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      position: relative;
+      z-index: 100;
+    }
+    .banner-text {
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.05em;
+      color: var(--text-2);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    .banner-sep { color: var(--border-lt); }
+    .banner-link {
+      color: var(--cyan);
+      text-decoration: none;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: opacity .15s;
+    }
+    .banner-link:hover { opacity: .75; }
+    .banner-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--cyan);
+      animation: pulse-banner 2s ease-in-out infinite;
+      flex-shrink: 0;
+    }
+    @keyframes pulse-banner {
+      0%,100% { opacity: 1; box-shadow: 0 0 0 0 var(--cyan-glow); }
+      50%      { opacity: .6; box-shadow: 0 0 0 4px transparent; }
+    }
+
+    /* ── NAVBAR ── */
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 90;
+      background: rgba(7,11,20,.85);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border);
+      height: 64px;
+      display: flex;
+      align-items: center;
+      padding: 0 48px;
+      gap: 40px;
+    }
+    .nav-logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      flex-shrink: 0;
+    }
+    .nav-logo img { height: 28px; width: auto; }
+    .nav-wordmark {
+      font-family: var(--sans);
+      font-size: 18px;
+      font-weight: 800;
+      color: var(--text);
+      letter-spacing: -0.02em;
+    }
+    .nav-links {
+      display: flex;
+      gap: 4px;
+      flex: 1;
+    }
+    .nav-link {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-2);
+      text-decoration: none;
+      padding: 6px 14px;
+      border-radius: 6px;
+      transition: all .15s;
+    }
+    .nav-link:hover { color: var(--text); background: var(--surface-2); }
+    .nav-cta {
+      background: var(--cyan);
+      color: #000;
+      font-size: 13px;
+      font-weight: 700;
+      padding: 8px 20px;
+      border-radius: 6px;
+      text-decoration: none;
+      letter-spacing: -0.01em;
+      transition: opacity .15s;
+      flex-shrink: 0;
+    }
+    .nav-cta:hover { opacity: .85; }
+
+    /* ── HERO ── */
+    .hero {
+      position: relative;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 80px 24px 120px;
+      overflow: hidden;
+    }
+    #hero-canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+    .hero-content {
+      position: relative;
+      z-index: 2;
+      text-align: center;
+      max-width: 800px;
+    }
+    .hero-eyebrow {
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--cyan);
+      margin-bottom: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+    }
+    .hero-eyebrow::before,
+    .hero-eyebrow::after {
+      content: '';
+      width: 32px;
+      height: 1px;
+      background: var(--cyan);
+      opacity: .5;
+    }
+    .hero-h1 {
+      font-size: clamp(42px, 7vw, 80px);
+      font-weight: 900;
+      letter-spacing: -0.04em;
+      line-height: 1.05;
+      color: var(--text);
+      text-wrap: balance;
+      margin-bottom: 24px;
+    }
+    .hero-h1 em {
+      font-style: normal;
+      color: var(--cyan);
+    }
+    .hero-h1 strong {
+      color: var(--amber);
+    }
+    .hero-sub {
+      font-size: 17px;
+      color: var(--text-2);
+      line-height: 1.65;
+      max-width: 580px;
+      margin: 0 auto 40px;
+      font-weight: 400;
+    }
+    .hero-actions {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .btn-primary {
+      background: var(--cyan);
+      color: #000;
+      font-family: var(--sans);
+      font-size: 14px;
+      font-weight: 700;
+      padding: 14px 28px;
+      border-radius: 8px;
+      text-decoration: none;
+      border: none;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: opacity .15s, transform .15s;
+      letter-spacing: -0.01em;
+    }
+    .btn-primary:hover { opacity: .85; transform: translateY(-1px); }
+    .btn-ghost {
+      background: transparent;
+      color: var(--text-2);
+      font-family: var(--sans);
+      font-size: 14px;
+      font-weight: 600;
+      padding: 14px 28px;
+      border-radius: 8px;
+      text-decoration: none;
+      border: 1px solid var(--border-lt);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: all .15s;
+    }
+    .btn-ghost:hover { border-color: var(--text-3); color: var(--text); }
+    .hero-scroll {
+      position: absolute;
+      bottom: 40px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      color: var(--text-3);
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.1em;
+    }
+    .hero-scroll-line {
+      width: 1px;
+      height: 40px;
+      background: linear-gradient(to bottom, var(--border-lt), transparent);
+      animation: scroll-line 2s ease-in-out infinite;
+    }
+    @keyframes scroll-line {
+      0%   { transform: scaleY(0); transform-origin: top; }
+      50%  { transform: scaleY(1); transform-origin: top; }
+      51%  { transform: scaleY(1); transform-origin: bottom; }
+      100% { transform: scaleY(0); transform-origin: bottom; }
+    }
+
+    /* ── SECTION SCAFFOLDING ── */
+    section { padding: 96px 24px; }
+    .container { max-width: 1100px; margin: 0 auto; }
+    .section-eyebrow {
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--cyan);
+      margin-bottom: 16px;
+    }
+    .section-title {
+      font-size: clamp(28px, 4vw, 44px);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      line-height: 1.1;
+      color: var(--text);
+      text-wrap: balance;
+      margin-bottom: 16px;
+    }
+    .section-sub {
+      font-size: 16px;
+      color: var(--text-2);
+      max-width: 520px;
+      line-height: 1.65;
+    }
+
+    /* ── LOGO MARQUEE ── */
+    .marquee-section {
+      padding: 48px 0;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      overflow: hidden;
+    }
+    .marquee-label {
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--text-3);
+      text-align: center;
+      margin-bottom: 28px;
+    }
+    .marquee-track {
+      display: flex;
+      gap: 0;
+      overflow: hidden;
+      mask-image: linear-gradient(90deg, transparent, black 10%, black 90%, transparent);
+      -webkit-mask-image: linear-gradient(90deg, transparent, black 10%, black 90%, transparent);
+    }
+    .marquee-inner {
+      display: flex;
+      gap: 0;
+      width: max-content;
+      animation: marquee-scroll 60s linear infinite;
+      will-change: transform;
+    }
+    @keyframes marquee-scroll {
+      from { transform: translateX(0); }
+      to   { transform: translateX(-50%); }
+    }
+    .marquee-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 36px;
+      border-right: 1px solid var(--border);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .marquee-item-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .marquee-item-name {
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-2);
+      letter-spacing: 0.02em;
+    }
+    .marquee-item-sub {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--text-3);
+    }
+
+    /* ── STATS STRIP ── */
+    .stats-strip {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      background: var(--surface);
+    }
+    .stat-item {
+      padding: 32px 28px;
+      border-right: 1px solid var(--border);
+    }
+    .stat-item:last-child { border-right: none; }
+    .stat-num {
+      font-family: var(--mono);
+      font-size: 40px;
+      font-weight: 700;
+      color: var(--cyan);
+      line-height: 1;
+      margin-bottom: 8px;
+      letter-spacing: -0.03em;
+    }
+    .stat-label {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 4px;
+    }
+    .stat-desc {
+      font-size: 12px;
+      color: var(--text-3);
+      line-height: 1.4;
+    }
+
+    /* ── PRODUCT ACCORDION ── */
+    .accordion-layout {
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      gap: 0;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      background: var(--surface);
+      min-height: 520px;
+    }
+    .accordion-tabs {
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+    }
+    .accordion-tab {
+      padding: 20px 24px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      transition: all .2s;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      position: relative;
+      border-left: 3px solid transparent;
+    }
+    .accordion-tab:last-child { border-bottom: none; }
+    .accordion-tab:hover { background: var(--surface-2); }
+    .accordion-tab.active {
+      background: var(--surface-2);
+      border-left-color: var(--cyan);
+    }
+    .accordion-tab.active .tab-title { color: var(--cyan); }
+    .tab-num {
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: 0.12em;
+      color: var(--text-3);
+      text-transform: uppercase;
+    }
+    .tab-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: -0.01em;
+      transition: color .2s;
+    }
+    .tab-desc {
+      font-size: 11px;
+      color: var(--text-3);
+      line-height: 1.4;
+    }
+    .accordion-panel {
+      display: none;
+      flex-direction: column;
+      padding: 28px;
+      background: var(--bg);
+    }
+    .accordion-panel.active { display: flex; }
+
+    /* ── MOCK UI PANELS ── */
+    .mock-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+    }
+    .mock-title {
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-2);
+    }
+    .mock-badge {
+      font-family: var(--mono);
+      font-size: 9px;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+    }
+    .mock-badge-cyan  { background: var(--cyan-dim); color: var(--cyan); }
+    .mock-badge-amber { background: var(--amber-dim); color: var(--amber); }
+    .mock-stat-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+    .mock-stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 12px;
+    }
+    .mock-stat-card .msn {
+      font-family: var(--mono);
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 2px;
+    }
+    .msn-blue  { color: #3B82F6; }
+    .msn-green { color: var(--green); }
+    .msn-amber { color: var(--amber); }
+    .msn-red   { color: var(--red); }
+    .mock-stat-card .msl {
+      font-size: 9px;
+      color: var(--text-3);
+      font-family: var(--mono);
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+    .mock-feed {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow: hidden;
+      flex: 1;
+    }
+    .mock-feed-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 14px;
+      border-bottom: 1px solid var(--border);
+      font-family: var(--mono);
+      font-size: 10px;
+    }
+    .mock-feed-row:last-child { border-bottom: none; }
+    .mfr-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+    .mfr-id { color: var(--cyan); font-weight: 700; min-width: 68px; }
+    .mfr-pattern { color: var(--text-2); flex: 1; }
+    .mfr-amt { color: var(--text); font-weight: 700; text-align: right; }
+    .mfr-badge {
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 8px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+    }
+
+    /* Graph mock */
+    .mock-graph {
+      flex: 1;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      position: relative;
+      overflow: hidden;
+      min-height: 320px;
+    }
+    .mock-graph canvas { width: 100%; height: 100%; display: block; }
+    .mock-graph-overlay {
+      position: absolute;
+      bottom: 12px;
+      left: 12px;
+      display: flex;
+      gap: 10px;
+    }
+    .mock-legend {
+      font-family: var(--mono);
+      font-size: 9px;
+      color: var(--text-3);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .mock-legend-dot { width: 6px; height: 6px; border-radius: 50%; }
+
+    /* Table mock */
+    .mock-table { width: 100%; border-collapse: collapse; font-size: 11px; font-family: var(--mono); }
+    .mock-table th {
+      text-align: left;
+      padding: 8px 12px;
+      background: var(--surface-2);
+      color: var(--text-3);
+      font-size: 9px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      border-bottom: 1px solid var(--border);
+    }
+    .mock-table td {
+      padding: 9px 12px;
+      color: var(--text-2);
+      border-bottom: 1px solid var(--border);
+    }
+    .mock-table tr:last-child td { border-bottom: none; }
+    .mock-table td:first-child { color: var(--cyan); font-weight: 700; }
+    .mock-pill {
+      display: inline-block;
+      padding: 2px 7px;
+      border-radius: 3px;
+      font-size: 8px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+    }
+    .pill-green { background: rgba(16,185,129,.15); color: var(--green); }
+    .pill-amber { background: var(--amber-dim); color: var(--amber); }
+    .pill-red   { background: rgba(239,68,68,.15); color: var(--red); }
+
+    /* Search mock */
+    .mock-search-bar {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+    .mock-input {
+      flex: 1;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--text-2);
+    }
+    .mock-btn {
+      background: var(--cyan);
+      color: #000;
+      border: none;
+      border-radius: 6px;
+      padding: 8px 16px;
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 700;
+      cursor: default;
+    }
+
+    /* Predict mock */
+    .mock-upload {
+      background: var(--surface);
+      border: 1px dashed var(--border-lt);
+      border-radius: 8px;
+      padding: 24px;
+      text-align: center;
+      margin-bottom: 14px;
+    }
+    .mock-upload-icon { font-size: 28px; margin-bottom: 8px; }
+    .mock-upload-text { font-family: var(--mono); font-size: 11px; color: var(--text-3); }
+    .mock-progress {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 14px;
+      margin-bottom: 14px;
+    }
+    .mock-progress-bar-wrap {
+      height: 4px;
+      background: var(--border);
+      border-radius: 2px;
+      overflow: hidden;
+      margin-top: 8px;
+    }
+    .mock-progress-bar {
+      height: 100%;
+      width: 72%;
+      background: var(--cyan);
+      border-radius: 2px;
+    }
+
+    /* ── HOW IT WORKS ── */
+    .how-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 2px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .how-step {
+      background: var(--surface);
+      padding: 40px 32px;
+      border-right: 1px solid var(--border);
+      position: relative;
+    }
+    .how-step:last-child { border-right: none; }
+    .how-step-num {
+      font-family: var(--mono);
+      font-size: 48px;
+      font-weight: 700;
+      color: var(--border-lt);
+      line-height: 1;
+      margin-bottom: 24px;
+      letter-spacing: -0.04em;
+    }
+    .how-step-icon {
+      font-size: 28px;
+      margin-bottom: 16px;
+      display: block;
+    }
+    .how-step-title {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--text);
+      margin-bottom: 10px;
+    }
+    .how-step-desc {
+      font-size: 13px;
+      color: var(--text-2);
+      line-height: 1.65;
+    }
+    .how-step-tag {
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--cyan);
+      margin-bottom: 8px;
+    }
+
+    /* ── CTA SECTION ── */
+    .cta-section {
+      padding: 96px 24px;
+      text-align: center;
+      background: radial-gradient(ellipse 80% 60% at 50% 50%, rgba(0,194,255,.06) 0%, transparent 70%);
+    }
+    .cta-title {
+      font-size: clamp(32px, 5vw, 56px);
+      font-weight: 900;
+      letter-spacing: -0.04em;
+      line-height: 1.05;
+      color: var(--text);
+      margin-bottom: 16px;
+      text-wrap: balance;
+    }
+    .cta-sub {
+      font-size: 16px;
+      color: var(--text-2);
+      margin-bottom: 36px;
+      max-width: 480px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    /* ── FOOTER ── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 32px 48px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .footer-brand {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--text-3);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .footer-brand img { height: 20px; width: auto; opacity: .5; }
+    .footer-links {
+      display: flex;
+      gap: 24px;
+    }
+    .footer-link {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--text-3);
+      text-decoration: none;
+      transition: color .15s;
+    }
+    .footer-link:hover { color: var(--text-2); }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 900px) {
+      nav { padding: 0 24px; gap: 20px; }
+      .nav-links { display: none; }
+      .stats-strip { grid-template-columns: repeat(2, 1fr); }
+      .stat-item:nth-child(2) { border-right: none; }
+      .accordion-layout { grid-template-columns: 1fr; }
+      .accordion-tabs { flex-direction: row; overflow-x: auto; border-right: none; border-bottom: 1px solid var(--border); }
+      .accordion-tab { border-bottom: none; border-right: 1px solid var(--border); border-left: none; border-bottom: 3px solid transparent; min-width: 160px; }
+      .accordion-tab.active { border-bottom-color: var(--cyan); border-left: none; }
+      .how-grid { grid-template-columns: 1fr; }
+      .how-step { border-right: none; border-bottom: 1px solid var(--border); }
+      .how-step:last-child { border-bottom: none; }
+      footer { padding: 24px; }
+    }
+    @media (max-width: 600px) {
+      .stats-strip { grid-template-columns: 1fr 1fr; }
+      .mock-stat-row { grid-template-columns: 1fr 1fr; }
+      section { padding: 64px 16px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .marquee-inner { animation: none; }
+      .banner-dot { animation: none; }
+      .hero-scroll-line { animation: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ── ANNOUNCEMENT BANNER ── -->
+  <div class="banner">
+    <div class="banner-text">
+      <span class="banner-dot"></span>
+      <span>Multi-GNN edge-level classification</span>
+      <span class="banner-sep">·</span>
+      <span>4 laundering pattern types</span>
+      <span class="banner-sep">·</span>
+      <span>Real-time ingestion via API</span>
+      <span class="banner-sep">·</span>
+      <a href="/app" class="banner-link">Launch Platform →</a>
+    </div>
+  </div>
+
+  <!-- ── NAVBAR ── -->
+  <nav>
+    <a href="/" class="nav-logo">
+      <img src="/static/public/argus_logo.svg" alt="Argus" />
+      <span class="nav-wordmark">Argus</span>
+    </a>
+    <div class="nav-links">
+      <a href="#features" class="nav-link">Features</a>
+      <a href="#how-it-works" class="nav-link">How it works</a>
+      <a href="#stack" class="nav-link">Stack</a>
+    </div>
+    <a href="/app" class="nav-cta">Launch Platform →</a>
+  </nav>
+
+  <!-- ── HERO ── -->
+  <section class="hero">
+    <canvas id="hero-canvas" aria-hidden="true"></canvas>
+    <div class="hero-content">
+      <div class="hero-eyebrow">Graph Neural Network · AML Intelligence</div>
+      <h1 class="hero-h1">
+        See money laundering<br><em>before</em> it <strong>hides.</strong>
+      </h1>
+      <p class="hero-sub">
+        Argus runs a Multi-GNN directly on the transaction multigraph — scoring every edge in real time, clustering suspicious patterns, and surfacing them to analysts for decision.
+      </p>
+      <div class="hero-actions">
+        <a href="/app" class="btn-primary">
+          Launch Platform
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 7h12M7 1l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
+        <a href="#features" class="btn-ghost">See how it works</a>
+      </div>
+    </div>
+    <div class="hero-scroll" aria-hidden="true">
+      <div class="hero-scroll-line"></div>
+      <span>SCROLL</span>
+    </div>
+  </section>
+
+  <!-- ── LOGO MARQUEE ── -->
+  <div class="marquee-section" id="stack">
+    <div class="marquee-label">Powered by</div>
+    <div class="marquee-track">
+      <div class="marquee-inner" aria-hidden="true">
+        <!-- set 1 -->
+        <div class="marquee-item"><div class="marquee-item-icon">🔥</div><div><div class="marquee-item-name">PyTorch Geometric</div><div class="marquee-item-sub">GNN backbone</div></div></div>
+        <div class="marquee-item"><div class="marquee-item-icon">⚡</div><div><div class="marquee-item-name">FastAPI</div><div class="marquee-item-sub">Async REST API</div></div></div>
+        <div class="marquee-item"><div class="marquee-item-icon">🐘</div><div><div class="marquee-item-name">PostgreSQL</div><div class="marquee-item-sub">Persistent store</div></div></div>
+        <div class="marquee-item"><div class="marquee-item-icon">🕸️</div><div><div class="marquee-item-name">Cytoscape.js</div><div class="marquee-item-sub">Graph rendering</div></div></div>
+        <div class="marquee-item"><div class="marquee-item-icon">🐍</div><div><div class="marquee-item-name">Python 3.10+</div><div class="marquee-item-sub">Runtime</div></div></div>
+        <div class="marquee-item"><div class="marquee-item-icon">📊</div><div><div class="marquee-item-name">Chart.js</div><div class="marquee-item-sub">Analytics charts</div></div></div>
+        <div class="marquee-item"><div class="marquee-item-icon">🧮</div><div><div class="marquee-item-name">NumPy / Pandas</div><div class="marquee-item-sub">Data processing</div></div></div>
+        <div class="marquee-item"><div class="marquee-item-icon">🌐</div><div><div class="marquee-item-name">NetworkX</div><div class="marquee-item-sub">Graph algorithms</div></div></div>
+        <div class="marquee-item"><div class="marquee-item-icon">🧠</div><div><div class="marquee-item-name">PNAConv + GINEConv</div><div class="marquee-item-sub">Edge classifier</div></div></div>
+        <div class="marquee-item"><div class="marquee-item-icon">🐳</div><div><div class="marquee-item-name">Docker</div><div class="marquee-item-sub">Containerised deploy</div></div></div>
+        <!-- set 2 (duplicate for seamless loop) -->
+        <div class="marquee-item"><div class="marquee-item-icon">🔥</div><div><div class="marquee-item-name">PyTorch Geometric</div><div class="marquee-item-sub">GNN backbone</div></div></div>
+        <div class="marquee-item"><div class="marquee-item-icon">⚡</div><div><div class="marquee-item-name">FastAPI</div><div class="marquee-item-sub">Async REST API</div></div></div>
+        <div class="marquee-item"><div class="marquee-item-icon">🐘</div><div><div class="marquee-item-name">PostgreSQL</div><div class="marquee-item-sub">Persistent store</div></div></div>
+        <div class="marquee-item"><div class="marquee-item-icon">🕸️</div><div><div class="marquee-item-name">Cytoscape.js</div><div class="marquee-item-sub">Graph rendering</div></div></div>
+        <div class="marquee-item"><div class="marquee-item-icon">🐍</div><div><div class="marquee-item-name">Python 3.10+</div><div class="marquee-item-sub">Runtime</div></div></div>
+        <div class="marquee-item"><div class="marquee-item-icon">📊</div><div><div class="marquee-item-name">Chart.js</div><div class="marquee-item-sub">Analytics charts</div></div></div>
+        <div class="marquee-item"><div class="marquee-item-icon">🧮</div><div><div class="marquee-item-name">NumPy / Pandas</div><div class="marquee-item-sub">Data processing</div></div></div>
+        <div class="marquee-item"><div class="marquee-item-icon">🌐</div><div><div class="marquee-item-name">NetworkX</div><div class="marquee-item-sub">Graph algorithms</div></div></div>
+        <div class="marquee-item"><div class="marquee-item-icon">🧠</div><div><div class="marquee-item-name">PNAConv + GINEConv</div><div class="marquee-item-sub">Edge classifier</div></div></div>
+        <div class="marquee-item"><div class="marquee-item-icon">🐳</div><div><div class="marquee-item-name">Docker</div><div class="marquee-item-sub">Containerised deploy</div></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── STATS ── -->
+  <section style="padding-top:64px;padding-bottom:64px;">
+    <div class="container">
+      <div class="stats-strip">
+        <div class="stat-item">
+          <div class="stat-num">4</div>
+          <div class="stat-label">Pattern Types</div>
+          <div class="stat-desc">Scatter-Gather, Gather-Scatter, Bipartite, Random — all detected natively</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-num">100<span style="font-size:24px">%</span></div>
+          <div class="stat-label">Edge-level Scoring</div>
+          <div class="stat-desc">GNN scores every transaction edge, not just aggregate account flags</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-num">&lt;1s</div>
+          <div class="stat-label">Ingest Latency</div>
+          <div class="stat-desc">Neighbourhood rescore triggers on new transactions via live API</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-num">∞</div>
+          <div class="stat-label">Audit Trail</div>
+          <div class="stat-desc">Every decision — confirm, review, dismiss — persisted with timestamp and reason</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── PRODUCT ACCORDION ── -->
+  <section id="features">
+    <div class="container">
+      <div class="section-eyebrow">Platform</div>
+      <h2 class="section-title">Every workflow, covered.</h2>
+      <p class="section-sub" style="margin-bottom:48px">From real-time alert detection to custom batch prediction — one platform, six integrated views.</p>
+
+      <div class="accordion-layout">
+        <div class="accordion-tabs">
+
+          <div class="accordion-tab active" onclick="switchTab(0)">
+            <span class="tab-num">01</span>
+            <span class="tab-title">Alert Detection</span>
+            <span class="tab-desc">Live feed, stat cards, pattern breakdown</span>
+          </div>
+          <div class="accordion-tab" onclick="switchTab(1)">
+            <span class="tab-num">02</span>
+            <span class="tab-title">Graph Investigation</span>
+            <span class="tab-desc">Interactive transaction multigraph + timeline</span>
+          </div>
+          <div class="accordion-tab" onclick="switchTab(2)">
+            <span class="tab-num">03</span>
+            <span class="tab-title">Account Search</span>
+            <span class="tab-desc">2-hop network for any flagged account</span>
+          </div>
+          <div class="accordion-tab" onclick="switchTab(3)">
+            <span class="tab-num">04</span>
+            <span class="tab-title">Case Management</span>
+            <span class="tab-desc">Audit trail, filter by decision, export CSV</span>
+          </div>
+          <div class="accordion-tab" onclick="switchTab(4)">
+            <span class="tab-num">05</span>
+            <span class="tab-title">Custom Prediction</span>
+            <span class="tab-desc">Upload CSV, score on demand via Multi-GNN</span>
+          </div>
+
+        </div>
+
+        <!-- Panel 0: Alert Detection -->
+        <div class="accordion-panel active" id="panel-0">
+          <div class="mock-header">
+            <span class="mock-title">Dashboard — Live Feed</span>
+            <span class="mock-badge mock-badge-cyan">LIVE</span>
+          </div>
+          <div class="mock-stat-row">
+            <div class="mock-stat-card"><div class="msn msn-blue">247</div><div class="msl">Total Alerts</div></div>
+            <div class="mock-stat-card"><div class="msn msn-green">₹4.2Cr</div><div class="msl">Flagged</div></div>
+            <div class="mock-stat-card"><div class="msn msn-amber">38</div><div class="msl">High Severity</div></div>
+            <div class="mock-stat-card"><div class="msn msn-red">91</div><div class="msl">Decisions</div></div>
+          </div>
+          <div class="mock-feed">
+            <div class="mock-feed-row"><span class="mfr-dot" style="background:var(--red)"></span><span class="mfr-id">AML-0831</span><span class="mfr-pattern">Scatter-Gather · 7 hops</span><span class="mfr-amt">₹12,40,000</span><span class="mfr-badge pill-red">HIGH</span></div>
+            <div class="mock-feed-row"><span class="mfr-dot" style="background:var(--amber)"></span><span class="mfr-id">AML-0830</span><span class="mfr-pattern">Bipartite · 5 hops</span><span class="mfr-amt">₹8,15,500</span><span class="mfr-badge pill-amber">MED</span></div>
+            <div class="mock-feed-row"><span class="mfr-dot" style="background:var(--amber)"></span><span class="mfr-id">AML-0829</span><span class="mfr-pattern">Gather-Scatter · 4 hops</span><span class="mfr-amt">₹3,70,000</span><span class="mfr-badge pill-amber">MED</span></div>
+            <div class="mock-feed-row"><span class="mfr-dot" style="background:var(--green)"></span><span class="mfr-id">AML-0828</span><span class="mfr-pattern">Random · 3 hops</span><span class="mfr-amt">₹95,200</span><span class="mfr-badge pill-green">LOW</span></div>
+            <div class="mock-feed-row"><span class="mfr-dot" style="background:var(--red)"></span><span class="mfr-id">AML-0827</span><span class="mfr-pattern">Scatter-Gather · 9 hops</span><span class="mfr-amt">₹21,00,000</span><span class="mfr-badge pill-red">HIGH</span></div>
+          </div>
+        </div>
+
+        <!-- Panel 1: Graph Investigation -->
+        <div class="accordion-panel" id="panel-1">
+          <div class="mock-header">
+            <span class="mock-title">Investigate — AML-0831</span>
+            <span class="mock-badge mock-badge-amber">SCATTER-GATHER</span>
+          </div>
+          <div class="mock-graph">
+            <canvas id="graph-mock-canvas"></canvas>
+            <div class="mock-graph-overlay">
+              <div class="mock-legend"><span class="mock-legend-dot" style="background:var(--cyan)"></span>source</div>
+              <div class="mock-legend"><span class="mock-legend-dot" style="background:var(--amber)"></span>mule</div>
+              <div class="mock-legend"><span class="mock-legend-dot" style="background:var(--red)"></span>sink</div>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px;">
+            <div class="mock-stat-card"><div class="msn" style="color:var(--text);font-size:14px;font-family:var(--mono)">₹12.4L</div><div class="msl">Total Moved</div></div>
+            <div class="mock-stat-card"><div class="msn" style="color:var(--text);font-size:14px;font-family:var(--mono)">3h 14m</div><div class="msl">Time Span</div></div>
+            <div class="mock-stat-card"><div class="msn" style="color:var(--text);font-size:14px;font-family:var(--mono)">7</div><div class="msl">Hops</div></div>
+            <div class="mock-stat-card"><div class="msn" style="color:var(--amber);font-size:14px;font-family:var(--mono)">0.94</div><div class="msl">GNN Score</div></div>
+          </div>
+        </div>
+
+        <!-- Panel 2: Account Search -->
+        <div class="accordion-panel" id="panel-2">
+          <div class="mock-header">
+            <span class="mock-title">Account Search — 2-hop Network</span>
+            <span class="mock-badge mock-badge-cyan">A000429</span>
+          </div>
+          <div class="mock-search-bar">
+            <div class="mock-input">A000429</div>
+            <div class="mock-btn">Search</div>
+          </div>
+          <div class="mock-graph" style="min-height:280px">
+            <canvas id="search-mock-canvas"></canvas>
+            <div class="mock-graph-overlay">
+              <div class="mock-legend"><span class="mock-legend-dot" style="background:var(--amber)"></span>searched</div>
+              <div class="mock-legend"><span class="mock-legend-dot" style="background:#3B82F6"></span>1 hop</div>
+              <div class="mock-legend"><span class="mock-legend-dot" style="background:var(--text-3)"></span>2 hops</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Panel 3: Case Management -->
+        <div class="accordion-panel" id="panel-3">
+          <div class="mock-header">
+            <span class="mock-title">Case Manager — Decisions</span>
+            <span class="mock-badge mock-badge-cyan">91 DECISIONS</span>
+          </div>
+          <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;">
+            <div style="background:var(--cyan-dim);color:var(--cyan);font-family:var(--mono);font-size:9px;padding:4px 10px;border-radius:4px;font-weight:700;">ALL</div>
+            <div style="background:var(--surface-2);color:var(--text-3);font-family:var(--mono);font-size:9px;padding:4px 10px;border-radius:4px;">CONFIRMED</div>
+            <div style="background:var(--surface-2);color:var(--text-3);font-family:var(--mono);font-size:9px;padding:4px 10px;border-radius:4px;">REVIEWED</div>
+            <div style="background:var(--surface-2);color:var(--text-3);font-family:var(--mono);font-size:9px;padding:4px 10px;border-radius:4px;">DISMISSED</div>
+          </div>
+          <div style="overflow-x:auto;">
+            <table class="mock-table">
+              <thead><tr><th>Alert ID</th><th>Pattern</th><th>Severity</th><th>Total Moved</th><th>Decision</th></tr></thead>
+              <tbody>
+                <tr><td>AML-0831</td><td>Scatter-Gather</td><td><span class="mock-pill pill-red">HIGH</span></td><td>₹12,40,000</td><td><span class="mock-pill pill-red">CONFIRMED</span></td></tr>
+                <tr><td>AML-0828</td><td>Random</td><td><span class="mock-pill pill-green">LOW</span></td><td>₹95,200</td><td><span class="mock-pill pill-green">DISMISSED</span></td></tr>
+                <tr><td>AML-0826</td><td>Bipartite</td><td><span class="mock-pill pill-amber">MED</span></td><td>₹4,80,000</td><td><span class="mock-pill pill-amber">REVIEW</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Panel 4: Custom Prediction -->
+        <div class="accordion-panel" id="panel-4">
+          <div class="mock-header">
+            <span class="mock-title">Custom Prediction — Batch Scoring</span>
+            <span class="mock-badge mock-badge-cyan">Multi-GNN</span>
+          </div>
+          <div class="mock-upload">
+            <div class="mock-upload-icon">📂</div>
+            <div class="mock-upload-text">Drop .csv or .xlsx — up to 1,000 rows</div>
+          </div>
+          <div class="mock-progress">
+            <div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;color:var(--text-3);margin-bottom:4px;">
+              <span>Scoring through Multi-GNN…</span><span>0.7s</span>
+            </div>
+            <div class="mock-progress-bar-wrap"><div class="mock-progress-bar"></div></div>
+          </div>
+          <table class="mock-table">
+            <thead><tr><th>Timestamp</th><th>From</th><th>To</th><th>Amount</th><th>Flagged</th></tr></thead>
+            <tbody>
+              <tr><td>14:32:01</td><td>BANK2:A04291</td><td>BANK5:A07823</td><td>₹45,000</td><td><span class="mock-pill pill-red">YES · 0.97</span></td></tr>
+              <tr><td>14:32:04</td><td>BANK1:A00429</td><td>BANK3:A01122</td><td>₹12,500</td><td><span class="mock-pill pill-green">NO · 0.03</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ── HOW IT WORKS ── -->
+  <section id="how-it-works" style="padding-top:0">
+    <div class="container">
+      <div class="section-eyebrow">Process</div>
+      <h2 class="section-title" style="margin-bottom:48px">Three steps. Zero blind spots.</h2>
+      <div class="how-grid">
+        <div class="how-step">
+          <div class="how-step-num">01</div>
+          <div class="how-step-tag">Ingest</div>
+          <div class="how-step-title">Transactions arrive</div>
+          <p class="how-step-desc">Financial transaction data enters via the REST API or batch CSV upload. Argus builds a directed multigraph — every account is a node, every transfer is an edge with currency, amount, and timestamp.</p>
+        </div>
+        <div class="how-step">
+          <div class="how-step-num">02</div>
+          <div class="how-step-tag">Detect</div>
+          <div class="how-step-title">The GNN scores every edge</div>
+          <p class="how-step-desc">A PNAConv + GINEConv Multi-GNN runs on the graph and assigns a laundering-probability score to each transaction edge. High-scoring edges cluster into alerts. The neighbourhood rescores in under a second on new data.</p>
+        </div>
+        <div class="how-step">
+          <div class="how-step-num">03</div>
+          <div class="how-step-tag">Investigate</div>
+          <div class="how-step-title">Analyst closes the loop</div>
+          <p class="how-step-desc">Analysts open an alert, traverse the interactive graph, read the evidence flags — structuring, pass-through mules, velocity, off-hours timing — and mark Confirm, Review, or Dismiss. Every decision is persisted with timestamp and reason.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── CTA ── -->
+  <div class="cta-section">
+    <h2 class="cta-title">Graph-native AML.<br>Built for real operations.</h2>
+    <p class="cta-sub">Step past rules-based thresholds. Argus learns laundering behaviour across the full transaction network.</p>
+    <a href="/app" class="btn-primary" style="font-size:16px;padding:16px 36px;">
+      Launch the Platform
+      <svg width="16" height="16" viewBox="0 0 14 14" fill="none"><path d="M1 7h12M7 1l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </a>
+  </div>
+
+  <!-- ── FOOTER ── -->
+  <footer>
+    <div class="footer-brand">
+      <img src="/static/public/argus_logo.svg" alt="Argus" />
+      Argus — AML Intelligence Platform
+    </div>
+    <div class="footer-links">
+      <a href="/app" class="footer-link">Platform</a>
+      <a href="#features" class="footer-link">Features</a>
+      <a href="#how-it-works" class="footer-link">How it works</a>
+    </div>
+  </footer>
+
+  <script>
+    /* ── HERO CANVAS — transaction graph animation ── */
+    (function () {
+      const canvas = document.getElementById('hero-canvas');
+      const ctx = canvas.getContext('2d');
+      let W, H, nodes = [], edges = [], raf;
+
+      function resize() {
+        W = canvas.width  = canvas.offsetWidth;
+        H = canvas.height = canvas.offsetHeight;
+      }
+      window.addEventListener('resize', resize);
+      resize();
+
+      /* Spawn nodes */
+      function mkNode() {
+        return {
+          x: Math.random() * W,
+          y: Math.random() * H,
+          vx: (Math.random() - .5) * .35,
+          vy: (Math.random() - .5) * .35,
+          r: 3 + Math.random() * 4,
+          state: Math.random() < .15 ? 'flagged' : Math.random() < .35 ? 'suspicious' : 'normal',
+          pulse: Math.random() * Math.PI * 2,
+        };
+      }
+      for (let i = 0; i < 55; i++) nodes.push(mkNode());
+
+      /* Build edges between close nodes */
+      function rebuildEdges() {
+        edges = [];
+        const D2 = 220 * 220;
+        for (let i = 0; i < nodes.length; i++)
+          for (let j = i + 1; j < nodes.length; j++) {
+            const dx = nodes[i].x - nodes[j].x, dy = nodes[i].y - nodes[j].y;
+            if (dx * dx + dy * dy < D2) edges.push([i, j]);
+          }
+      }
+      rebuildEdges();
+
+      const COLORS = { normal: '#00C2FF', suspicious: '#F59E0B', flagged: '#EF4444' };
+
+      function draw(ts) {
+        ctx.clearRect(0, 0, W, H);
+
+        /* Edges */
+        for (const [a, b] of edges) {
+          const na = nodes[a], nb = nodes[b];
+          const mixed = na.state === 'flagged' || nb.state === 'flagged' ? 'flagged'
+                      : na.state === 'suspicious' || nb.state === 'suspicious' ? 'suspicious' : 'normal';
+          const alpha = mixed === 'normal' ? 0.07 : mixed === 'suspicious' ? 0.18 : 0.28;
+          ctx.beginPath();
+          ctx.moveTo(na.x, na.y);
+          ctx.lineTo(nb.x, nb.y);
+          ctx.strokeStyle = COLORS[mixed];
+          ctx.globalAlpha = alpha;
+          ctx.lineWidth = mixed === 'normal' ? .6 : 1;
+          ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+
+        /* Nodes */
+        for (const n of nodes) {
+          n.pulse += .025;
+          const pulseFactor = .7 + .3 * Math.sin(n.pulse);
+          const baseAlpha = n.state === 'normal' ? .5 : n.state === 'suspicious' ? .75 : .9;
+          const r = n.r * pulseFactor;
+
+          if (n.state !== 'normal') {
+            ctx.beginPath();
+            ctx.arc(n.x, n.y, r + 6, 0, Math.PI * 2);
+            const grd = ctx.createRadialGradient(n.x, n.y, r, n.x, n.y, r + 8);
+            grd.addColorStop(0, COLORS[n.state] + '44');
+            grd.addColorStop(1, 'transparent');
+            ctx.fillStyle = grd;
+            ctx.fill();
+          }
+
+          ctx.beginPath();
+          ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
+          ctx.fillStyle = COLORS[n.state];
+          ctx.globalAlpha = baseAlpha * pulseFactor;
+          ctx.fill();
+          ctx.globalAlpha = 1;
+
+          n.x += n.vx;
+          n.y += n.vy;
+          if (n.x < 0 || n.x > W) n.vx *= -1;
+          if (n.y < 0 || n.y > H) n.vy *= -1;
+        }
+
+        if (ts % 120 < 2) rebuildEdges();
+        raf = requestAnimationFrame(draw);
+      }
+      requestAnimationFrame(draw);
+
+      /* Pause when offscreen */
+      const obs = new IntersectionObserver(e => {
+        if (!e[0].isIntersecting) { cancelAnimationFrame(raf); }
+        else { raf = requestAnimationFrame(draw); }
+      });
+      obs.observe(canvas);
+    })();
+
+    /* ── PRODUCT ACCORDION ── */
+    function switchTab(idx) {
+      document.querySelectorAll('.accordion-tab').forEach((t, i) => t.classList.toggle('active', i === idx));
+      document.querySelectorAll('.accordion-panel').forEach((p, i) => p.classList.toggle('active', i === idx));
+      if (idx === 1) drawGraphMock();
+      if (idx === 2) drawSearchMock();
+    }
+
+    /* Graph investigation mock canvas */
+    function drawGraphMock() {
+      const c = document.getElementById('graph-mock-canvas');
+      if (!c) return;
+      const ctx = c.getContext('2d');
+      c.width = c.offsetWidth; c.height = c.offsetHeight;
+      const W = c.width, H = c.height;
+
+      const ns = [
+        {x:.5,y:.15,c:'#00C2FF',r:10,label:'Source'},
+        {x:.2,y:.45,c:'#F59E0B',r:8,label:'Mule A'},
+        {x:.4,y:.45,c:'#F59E0B',r:8,label:'Mule B'},
+        {x:.6,y:.45,c:'#F59E0B',r:8,label:'Mule C'},
+        {x:.8,y:.45,c:'#F59E0B',r:8,label:'Mule D'},
+        {x:.3,y:.78,c:'#EF4444',r:10,label:'Sink A'},
+        {x:.7,y:.78,c:'#EF4444',r:10,label:'Sink B'},
+      ].map(n => ({...n, x: n.x*W, y: n.y*H}));
+
+      const es = [[0,1],[0,2],[0,3],[0,4],[1,5],[2,5],[3,6],[4,6]];
+
+      ctx.clearRect(0,0,W,H);
+      for (const [a,b] of es) {
+        ctx.beginPath(); ctx.moveTo(ns[a].x,ns[a].y); ctx.lineTo(ns[b].x,ns[b].y);
+        ctx.strokeStyle = '#F59E0B'; ctx.globalAlpha = .35; ctx.lineWidth = 1.5; ctx.stroke();
+        ctx.globalAlpha = 1;
+        /* Arrow */
+        const ang = Math.atan2(ns[b].y-ns[a].y, ns[b].x-ns[a].x);
+        const mx = (ns[a].x+ns[b].x)/2, my = (ns[a].y+ns[b].y)/2;
+        ctx.beginPath();
+        ctx.moveTo(mx + Math.cos(ang)*6 + Math.cos(ang+Math.PI*.75)*5, my + Math.sin(ang)*6 + Math.sin(ang+Math.PI*.75)*5);
+        ctx.lineTo(mx + Math.cos(ang)*6, my + Math.sin(ang)*6);
+        ctx.lineTo(mx + Math.cos(ang)*6 + Math.cos(ang-Math.PI*.75)*5, my + Math.sin(ang)*6 + Math.sin(ang-Math.PI*.75)*5);
+        ctx.strokeStyle = '#F59E0B'; ctx.globalAlpha = .5; ctx.lineWidth = 1.5; ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+      for (const n of ns) {
+        ctx.beginPath(); ctx.arc(n.x,n.y,n.r+5,0,Math.PI*2);
+        const g = ctx.createRadialGradient(n.x,n.y,n.r,n.x,n.y,n.r+7);
+        g.addColorStop(0,n.c+'55'); g.addColorStop(1,'transparent');
+        ctx.fillStyle=g; ctx.fill();
+        ctx.beginPath(); ctx.arc(n.x,n.y,n.r,0,Math.PI*2);
+        ctx.fillStyle=n.c; ctx.globalAlpha=.9; ctx.fill(); ctx.globalAlpha=1;
+        ctx.font = '9px "Space Mono",monospace';
+        ctx.fillStyle = 'rgba(226,236,248,.55)';
+        ctx.textAlign = 'center';
+        ctx.fillText(n.label, n.x, n.y + n.r + 13);
+      }
+    }
+
+    function drawSearchMock() {
+      const c = document.getElementById('search-mock-canvas');
+      if (!c) return;
+      const ctx = c.getContext('2d');
+      c.width = c.offsetWidth; c.height = c.offsetHeight;
+      const W = c.width, H = c.height;
+
+      const cx = W/2, cy = H/2;
+      const r1 = Math.min(W,H) * .18, r2 = Math.min(W,H) * .36;
+
+      const hop1 = Array.from({length:6}, (_,i) => {
+        const a = (i/6)*Math.PI*2;
+        return {x: cx+Math.cos(a)*r1, y: cy+Math.sin(a)*r1, c:'#3B82F6'};
+      });
+      const hop2 = Array.from({length:10}, (_,i) => {
+        const a = (i/10)*Math.PI*2 + .3;
+        return {x: cx+Math.cos(a)*r2, y: cy+Math.sin(a)*r2, c:'#556880'};
+      });
+
+      ctx.clearRect(0,0,W,H);
+
+      for (const n of hop2) {
+        ctx.beginPath(); ctx.moveTo(hop1[Math.floor(Math.random()*6)%6].x, hop1[Math.floor(Math.random()*6)%6].y);
+        ctx.lineTo(n.x,n.y); ctx.strokeStyle='#556880'; ctx.globalAlpha=.2; ctx.lineWidth=1; ctx.stroke(); ctx.globalAlpha=1;
+      }
+      for (const n of hop1) {
+        ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(n.x,n.y);
+        ctx.strokeStyle='#3B82F6'; ctx.globalAlpha=.3; ctx.lineWidth=1.5; ctx.stroke(); ctx.globalAlpha=1;
+      }
+
+      for (const n of hop2) { ctx.beginPath(); ctx.arc(n.x,n.y,4,0,Math.PI*2); ctx.fillStyle=n.c; ctx.globalAlpha=.6; ctx.fill(); ctx.globalAlpha=1; }
+      for (const n of hop1) { ctx.beginPath(); ctx.arc(n.x,n.y,6,0,Math.PI*2); ctx.fillStyle=n.c; ctx.globalAlpha=.85; ctx.fill(); ctx.globalAlpha=1; }
+
+      /* Center node */
+      ctx.beginPath(); ctx.arc(cx,cy,10,0,Math.PI*2);
+      const g2 = ctx.createRadialGradient(cx,cy,5,cx,cy,16);
+      g2.addColorStop(0,'#F59E0B88'); g2.addColorStop(1,'transparent');
+      ctx.fillStyle=g2; ctx.fill();
+      ctx.beginPath(); ctx.arc(cx,cy,9,0,Math.PI*2); ctx.fillStyle='#F59E0B'; ctx.globalAlpha=.9; ctx.fill(); ctx.globalAlpha=1;
+    }
+  </script>
+</body>
+</html>

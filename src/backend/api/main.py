@@ -346,6 +346,8 @@ _AUTH_EXEMPT_PREFIXES = ("/static/",)
 
 
 def _get_session(request: Request) -> dict | None:
+    if not db._DB_AVAILABLE:
+        return {"user_id": 0, "company_id": "ARGUS", "username": "demo"}
     token = request.headers.get("X-Session-Token") or request.cookies.get("session_token")
     if not token:
         return None
@@ -1100,13 +1102,19 @@ async def predict_transactions(
 _INDEX_NO_CACHE = {"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"}
 
 
-def _index_response(frontend) -> FileResponse:
-    return FileResponse(str(frontend / "index.html"), headers=_INDEX_NO_CACHE)
+def _html_response(frontend, filename: str) -> FileResponse:
+    return FileResponse(str(frontend / filename), headers=_INDEX_NO_CACHE)
 
 
 @app.get("/")
-def serve_frontend():
-    return _index_response(get_frontend_dir())
+def serve_landing():
+    return _html_response(get_frontend_dir(), "landing.html")
+
+
+@app.get("/app")
+def serve_app():
+    return _html_response(get_frontend_dir(), "app.html")
+
 
 @app.get("/{path_name:path}")
 def serve_spa_fallback(path_name: str):
@@ -1114,4 +1122,4 @@ def serve_spa_fallback(path_name: str):
     file_path = (frontend / path_name).resolve()
     if file_path.is_relative_to(frontend.resolve()) and file_path.is_file():
         return FileResponse(str(file_path))
-    return _index_response(frontend)
+    return _html_response(frontend, "app.html")

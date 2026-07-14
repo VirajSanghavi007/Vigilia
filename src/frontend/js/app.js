@@ -9,6 +9,22 @@ document.title = 'AML Intelligence Platform';
 let authUser = null;
 let sessionToken = localStorage.getItem('argus-session-token') || '';
 
+// Auto-bypass login when backend runs in no-DB mode (HF / local without Postgres).
+// /auth/me returns 200 with a synthetic user in that mode regardless of token.
+(async function checkExistingSession() {
+  try {
+    const r = await fetch(`${typeof API_BASE !== 'undefined' ? API_BASE : ''}/auth/me`, {
+      credentials: 'same-origin',
+    });
+    if (r.ok) {
+      const user = await r.json();
+      sessionToken = sessionToken || 'no-db';
+      authUser = { companyId: user.company_id, name: user.username };
+      completeAuth();
+    }
+  } catch (e) { /* network down — show login screen normally */ }
+})();
+
 async function authStep1() {
   const companyId = document.getElementById('auth-company-id').value.trim();
   const name      = document.getElementById('auth-name').value.trim();

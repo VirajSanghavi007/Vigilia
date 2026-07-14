@@ -10,6 +10,13 @@
       "env": {
         "PYTHONPATH": "src"
       }
+    },
+    {
+      "name": "landing-preview",
+      "runtimeExecutable": "C:/Users/viraj/AppData/Local/Python/pythoncore-3.14-64/python.exe",
+      "runtimeArgs": ["-m", "http.server", "8765", "--directory", "src/frontend/public"],
+      "port": 8765,
+      "autoPort": false
     }
   ]
 }

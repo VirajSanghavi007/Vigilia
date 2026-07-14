@@ -28,10 +28,11 @@ logger = logging.getLogger("uvicorn.error")
 import config
 
 DATABASE_URL: str | None = os.environ.get("DATABASE_URL")
-if not DATABASE_URL:
-    raise RuntimeError(
-        "DATABASE_URL is not set. Argus requires Postgres — "
-        "export DATABASE_URL=postgresql://user:pass@host:5432/dbname"
+_DB_AVAILABLE: bool = bool(DATABASE_URL)
+if not _DB_AVAILABLE:
+    logger.warning(
+        "DATABASE_URL not set — running in no-DB mode. "
+        "Auth is disabled; decisions and live transactions will not persist."
     )
 
 _pg_pool = None
@@ -69,6 +70,8 @@ MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 
 def run_migrations() -> None:
     """Apply any migration file not yet recorded in schema_migrations, in order."""
+    if not _DB_AVAILABLE:
+        return
     with _PGConn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -100,6 +103,9 @@ def run_migrations() -> None:
 
 def init_db() -> None:
     """Initialize database and bring the schema up to date. Idempotent."""
+    if not _DB_AVAILABLE:
+        logger.info("No-DB mode — skipping database init")
+        return
     run_migrations()
     logger.info(f"PostgreSQL ready -> {DATABASE_URL.split('@')[-1]}")
 
@@ -107,6 +113,8 @@ def init_db() -> None:
 # ── Alerts ───────────────────────────────────────────────────────────────────
 
 def replace_alerts(alerts: list[dict], scan_id: str = "") -> int:
+    if not _DB_AVAILABLE:
+        return len(alerts)
     with _PGConn() as conn:
         with conn.cursor() as cur:
             cur.execute("DELETE FROM alerts;")
@@ -126,6 +134,8 @@ def replace_alerts(alerts: list[dict], scan_id: str = "") -> int:
 
 
 def load_alerts() -> dict:
+    if not _DB_AVAILABLE:
+        return {}
     with _PGConn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("SELECT payload FROM alerts")
@@ -134,6 +144,8 @@ def load_alerts() -> dict:
 
 
 def has_alerts() -> bool:
+    if not _DB_AVAILABLE:
+        return False
     with _PGConn() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT 1 FROM alerts LIMIT 1")
@@ -143,6 +155,8 @@ def has_alerts() -> bool:
 # ── Decisions ────────────────────────────────────────────────────────────────
 
 def record_decision(alert_id: str, decision: str, reason: str = "", analyst: str = "") -> None:
+    if not _DB_AVAILABLE:
+        return
     with _PGConn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -152,6 +166,8 @@ def record_decision(alert_id: str, decision: str, reason: str = "", analyst: str
 
 
 def current_decisions() -> dict:
+    if not _DB_AVAILABLE:
+        return {}
     sql = """
         SELECT d.alert_id, d.decision, d.reason, d.analyst, d.created_at
         FROM decisions d
@@ -172,6 +188,8 @@ def current_decisions() -> dict:
 
 
 def decision_history(alert_id: str) -> list[dict]:
+    if not _DB_AVAILABLE:
+        return []
     sql = "SELECT decision,reason,analyst,created_at FROM decisions WHERE alert_id=%s ORDER BY seq ASC"
     with _PGConn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -181,6 +199,8 @@ def decision_history(alert_id: str) -> list[dict]:
 
 
 def decision_counts() -> dict:
+    if not _DB_AVAILABLE:
+        return {"confirm": 0, "review": 0, "dismiss": 0}
     sql = """
         SELECT d.decision, COUNT(*) as cnt
         FROM decisions d
@@ -205,6 +225,8 @@ def store_live_transactions(rows: list[dict]) -> int:
     """Store ingested transactions for audit / future neighborhood rescoring."""
     if not rows:
         return 0
+    if not _DB_AVAILABLE:
+        return len(rows)
     with _PGConn() as conn:
         with conn.cursor() as cur:
             for r in rows:
@@ -222,6 +244,8 @@ def store_live_transactions(rows: list[dict]) -> int:
 
 
 def count_live_transactions() -> int:
+    if not _DB_AVAILABLE:
+        return 0
     with _PGConn() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT COUNT(*) FROM live_transactions")
@@ -231,6 +255,8 @@ def count_live_transactions() -> int:
 def get_live_transactions(limit: int = 15) -> list[dict]:
     """Most recently ingested live transactions, newest first — powers the
     Dashboard live-ingestion feed."""
+    if not _DB_AVAILABLE:
+        return []
     with _PGConn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
@@ -246,6 +272,8 @@ def get_all_live_transactions() -> list[dict]:
     """Every stored live transaction, in the ingest-row shape the neighborhood
     rescore expects. Used at startup to rebuild live-ingest alerts (in-memory
     ALERTS is wiped on every boot, but these rows persist in Postgres)."""
+    if not _DB_AVAILABLE:
+        return []
     with _PGConn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
@@ -271,6 +299,8 @@ def get_all_live_transactions() -> list[dict]:
 # ── Whitelist (exempt accounts) ─────────────────────────────────────────────
 
 def list_whitelist_accounts() -> list[dict]:
+    if not _DB_AVAILABLE:
+        return []
     with _PGConn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("SELECT account_id, reason FROM whitelist_accounts ORDER BY added_at ASC")
@@ -278,6 +308,8 @@ def list_whitelist_accounts() -> list[dict]:
 
 
 def add_whitelist_account(account_id: str, reason: str = "") -> None:
+    if not _DB_AVAILABLE:
+        return
     with _PGConn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -288,6 +320,8 @@ def add_whitelist_account(account_id: str, reason: str = "") -> None:
 
 
 def remove_whitelist_account(account_id: str) -> None:
+    if not _DB_AVAILABLE:
+        return
     with _PGConn() as conn:
         with conn.cursor() as cur:
             cur.execute("DELETE FROM whitelist_accounts WHERE account_id=%s", (account_id,))
@@ -304,6 +338,8 @@ def _hash_password(password: str) -> str:
 
 
 def seed_default_users() -> None:
+    if not _DB_AVAILABLE:
+        return
     defaults = [
         ("UBI-AML-2026", "admin", "admin123"),
         ("UBI-AML-2026", "analyst1", "analyst2026"),
@@ -320,6 +356,8 @@ def seed_default_users() -> None:
 
 
 def verify_user(company_id: str, username: str, password: str) -> dict | None:
+    if not _DB_AVAILABLE:
+        return {"id": 0, "company_id": company_id or "ARGUS", "username": username or "demo", "role": "analyst"}
     pw_hash = _hash_password(password)
     sql = "SELECT id,company_id,username,role FROM users WHERE company_id=%s AND username=%s AND password_hash=%s"
     with _PGConn() as conn:
@@ -330,6 +368,8 @@ def verify_user(company_id: str, username: str, password: str) -> dict | None:
 
 
 def create_session(user_id: int, company_id: str, username: str) -> str:
+    if not _DB_AVAILABLE:
+        return secrets.token_urlsafe(32)
     token = secrets.token_urlsafe(32)
     expires = datetime.now(timezone.utc) + timedelta(hours=_SESSION_TTL_HOURS)
     with _PGConn() as conn:
@@ -342,6 +382,8 @@ def create_session(user_id: int, company_id: str, username: str) -> str:
 
 
 def validate_session(token: str) -> dict | None:
+    if not _DB_AVAILABLE:
+        return {"user_id": 0, "company_id": "ARGUS", "username": "demo"} if token else None
     with _PGConn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
@@ -353,6 +395,8 @@ def validate_session(token: str) -> dict | None:
 
 
 def delete_session(token: str) -> None:
+    if not _DB_AVAILABLE:
+        return
     with _PGConn() as conn:
         with conn.cursor() as cur:
             cur.execute("DELETE FROM sessions WHERE token=%s", (token,))

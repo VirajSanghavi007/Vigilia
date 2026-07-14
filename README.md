@@ -1,6 +1,6 @@
 # Argus — AML Intelligence Platform
 
-Real-time anti-money laundering detection using a Multi-GNN (Graph Neural Network) that classifies transactions as laundering/legitimate directly on the transaction multigraph. Built for the iDEA 2.0 hackathon, judged by Union Bank of India.
+Real-time anti-money laundering detection using a Multi-GNN (Graph Neural Network) that classifies transactions as laundering/legitimate directly on the transaction multigraph.
 
 **Docs:** [ARCHITECTURE.md](ARCHITECTURE.md) (system design, diagrams, known gaps) · [API.md](API.md) (endpoint reference) · [src/database/migrations/README.md](src/database/migrations/README.md) (schema change process)
 

@@ -127,4 +127,4 @@ n8n / curl / your own script
 - **No staging environment.** Every deploy goes straight to the one production Space. A bad deploy is caught by a human noticing, not by a pre-prod check. Mitigated by: `rollback-hf.ps1` makes reverting fast once noticed.
 - **Live rescore is incremental, not full.** `/ingest` triggers a *neighborhood* rescore (the subgraph around new accounts), which is fast but doesn't re-evaluate the entire existing graph against the new data. A full re-score still requires a pipeline re-run. True continuous streaming is the productionization step.
 - **No mobile-specific layout.** The frontend is desktop-oriented; mobile is explicitly out of scope for this project.
-- **Single shared admin credentials**, not per-analyst accounts with fine-grained roles — acceptable for a hackathon demo, not for a real deployment.
+- **Single shared admin credentials**, not per-analyst accounts with fine-grained roles — a known gap for production deployment.

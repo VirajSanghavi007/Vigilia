@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 100" fill="none">
+  <!-- Eye shape -->
+  <path d="M110 22 C75 22 48 50 48 50 C48 50 75 78 110 78 C145 78 172 50 172 50 C172 50 145 22 110 22 Z"
+        stroke="white" stroke-width="3.5" fill="none" stroke-linejoin="round"/>
+  <!-- Iris -->
+  <circle cx="110" cy="50" r="16" stroke="white" stroke-width="3"/>
+  <!-- Pupil -->
+  <circle cx="110" cy="50" r="6" fill="white"/>
+  <!-- Scan line accent -->
+  <line x1="48" y1="50" x2="172" y2="50" stroke="white" stroke-width="0.75" stroke-dasharray="4 3" opacity="0.35"/>
+  <!-- Wordmark -->
+  <text x="110" y="95" text-anchor="middle"
+        font-family="'Poppins', -apple-system, sans-serif"
+        font-size="13" font-weight="700" letter-spacing="6"
+        fill="white" opacity="0.9">ARGUS</text>
+</svg>
