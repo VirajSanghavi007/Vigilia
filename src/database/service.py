@@ -11,7 +11,6 @@ Usage:
   export DATABASE_URL=postgresql://postgres:<password>@db.<project>.supabase.co:5432/postgres
 """
 
-import hashlib
 import json
 import logging
 import os
@@ -19,6 +18,8 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from argon2 import PasswordHasher
+from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
 import psycopg2
 import psycopg2.extras
 import psycopg2.pool
@@ -328,17 +329,40 @@ def remove_whitelist_account(account_id: str) -> None:
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
+# Passwords are hashed with argon2id (argon2-cffi). Argon2 generates a random
+# salt per password and embeds it in the stored hash string, so — unlike the
+# old shared-salt sha256 scheme — no two users ever share a salt, and there is
+# nothing extra to store or manage. ARGUS_SECRET is mixed in as a pepper: a
+# secret that lives only in the environment, never in the database, so a
+# leaked/dumped `users` table alone still isn't enough to brute-force
+# passwords offline — the attacker also needs the pepper.
 
 _SESSION_TTL_HOURS = 8
 
+_ph = PasswordHasher()
+
+
+def _pepper() -> str:
+    return os.environ.get("ARGUS_SECRET", "")
+
 
 def _hash_password(password: str) -> str:
-    salt = os.environ.get("ARGUS_SECRET", "argus-aml-2026")
-    return hashlib.sha256(f"{salt}:{password}".encode()).hexdigest()
+    return _ph.hash(_pepper() + password)
+
+
+def _verify_password(password: str, stored_hash: str) -> bool:
+    try:
+        return _ph.verify(stored_hash, _pepper() + password)
+    except (VerifyMismatchError, InvalidHashError, VerificationError):
+        return False
 
 
 def seed_default_users() -> None:
     if not _DB_AVAILABLE:
+        return
+    if os.environ.get("SPACE_ID") and not os.environ.get("ARGUS_SEED_DEMO_USERS"):
+        # Never auto-plant known admin/admin123-style credentials in prod.
+        # Set ARGUS_SEED_DEMO_USERS=1 to opt in explicitly (e.g. a demo Space).
         return
     defaults = [
         ("UBI-AML-2026", "admin", "admin123"),
@@ -357,14 +381,20 @@ def seed_default_users() -> None:
 
 def verify_user(company_id: str, username: str, password: str) -> dict | None:
     if not _DB_AVAILABLE:
+        if os.environ.get("SPACE_ID"):
+            # Fail closed in prod: a dead DB must not accept any password as valid.
+            return None
         return {"id": 0, "company_id": company_id or "ARGUS", "username": username or "demo", "role": "analyst"}
-    pw_hash = _hash_password(password)
-    sql = "SELECT id,company_id,username,role FROM users WHERE company_id=%s AND username=%s AND password_hash=%s"
+    # Argon2 embeds a random salt per hash, so the match can't happen in SQL
+    # (unlike the old sha256 scheme) — fetch by identity, verify in Python.
+    sql = "SELECT id,company_id,username,role,password_hash FROM users WHERE company_id=%s AND username=%s"
     with _PGConn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(sql, (company_id, username, pw_hash))
+            cur.execute(sql, (company_id, username))
             row = cur.fetchone()
-            return dict(row) if row else None
+    if not row or not _verify_password(password, row["password_hash"]):
+        return None
+    return {"id": row["id"], "company_id": row["company_id"], "username": row["username"], "role": row["role"]}
 
 
 def create_session(user_id: int, company_id: str, username: str) -> str:

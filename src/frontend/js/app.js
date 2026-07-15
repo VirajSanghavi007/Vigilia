@@ -291,6 +291,28 @@ function handleSessionExpired() {
   setTimeout(() => window.location.reload(), 800);
 }
 
+function escapeHtml(str) {
+  return String(str ?? '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+// For values interpolated into an inline event-handler attribute (e.g.
+// onclick="fn('${...}')"): the browser decodes HTML entities *before*
+// running the attribute as JS, so escapeHtml alone can't stop a `'` from
+// closing the JS string early. Escape for JS-string context first, then
+// HTML-escape the result so it's also safe as an attribute value.
+function escapeJsAttr(str) {
+  return escapeHtml(String(str ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
+}
+
+// Neutralize formula injection: a cell starting with =, +, -, or @ gets
+// interpreted as a formula by Excel/Sheets when the CSV is opened.
+function csvSafe(str) {
+  const s = String(str ?? '');
+  return /^[=+\-@]/.test(s) ? `'${s}` : s;
+}
+
 async function apiFetch(path, options = {}) {
   const headers = { ...(options.headers || {}) };
   if (sessionToken) headers['X-Session-Token'] = sessionToken;
@@ -903,9 +925,9 @@ async function renderRiskyAccounts() {
       const pct = Math.round((a.risk_score||0) * 100);
       const tier = pct >= 75 ? 'var(--red,#DA251C)' : pct >= 50 ? '#F59E0B' : 'var(--blue)';
       return `<div class="risky-acct-row" role="button" tabindex="0"
-                onclick="jumpToAccount('${a.account_id}')" onkeydown="if(event.key==='Enter')jumpToAccount('${a.account_id}')"
+                onclick="jumpToAccount('${escapeJsAttr(a.account_id)}')" onkeydown="if(event.key==='Enter')jumpToAccount('${escapeJsAttr(a.account_id)}')"
                 style="display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-2) var(--sp-2);border-bottom:1px solid var(--border);cursor:pointer">
-        <div style="font-family:var(--mono);font-weight:700;color:var(--text);min-width:90px">${a.account_id}</div>
+        <div style="font-family:var(--mono);font-weight:700;color:var(--text);min-width:90px">${escapeHtml(a.account_id)}</div>
         <div style="flex:1;height:6px;background:var(--bg);border-radius:3px;overflow:hidden">
           <div style="width:${pct}%;height:100%;background:${tier}"></div>
         </div>
@@ -1967,7 +1989,7 @@ function renderCaseManager() {
       <td><span class="badge ${SEV_BADGE[a.severity]||'badge-light'}">${a.severity}</span></td>
       <td>${a.totalMoved}</td>
       <td style="color:${decColors[dec.decision]};font-weight:600;font-family:var(--sans)">${dec.decision.toUpperCase()}</td>
-      <td style="color:var(--muted);font-size:var(--text-sm)">${dec.reason||'—'}</td>
+      <td style="color:var(--muted);font-size:var(--text-sm)">${escapeHtml(dec.reason)||'—'}</td>
       <td><button class="btn btn-ghost" style="font-size:var(--text-xs);padding:var(--sp-1) var(--sp-2)" onclick="jumpInvestigate('${a.id}')">Re-open</button></td>
     </tr>`;
   }).join('');
@@ -1979,7 +2001,7 @@ function exportCSV() {
   const lines = rows.map(a=>{
     const d=decisions[a.id];
     return [a.id,formatPatternName(a.patternType),a.severity,
-      a.totalMoved,d.decision,(d.reason||'').replace(/,/g,' ')].join(',');
+      a.totalMoved,d.decision,csvSafe((d.reason||'').replace(/,/g,' '))].join(',');
   });
   const blob=new Blob([[hdr,...lines].join('\n')],{type:'text/csv'});
   const url=URL.createObjectURL(blob);
@@ -2005,10 +2027,10 @@ function renderWhitelistPanel(wl) {
   document.getElementById('wl-accounts-list').innerHTML = accs.length
     ? accs.map(a=>`<div class="wl-account-item">
         <div>
-          <div>${a.account_id}</div>
-          ${a.reason ? `<div style="font-size:10px;color:var(--muted);margin-top:2px">${a.reason}</div>` : ''}
+          <div>${escapeHtml(a.account_id)}</div>
+          ${a.reason ? `<div style="font-size:10px;color:var(--muted);margin-top:2px">${escapeHtml(a.reason)}</div>` : ''}
         </div>
-        <button class="wl-remove-btn" onclick="removeWhitelistAccount('${a.account_id}')" aria-label="Remove ${a.account_id} from whitelist">×</button></div>`).join('')
+        <button class="wl-remove-btn" onclick="removeWhitelistAccount('${escapeJsAttr(a.account_id)}')" aria-label="Remove ${escapeHtml(a.account_id)} from whitelist">×</button></div>`).join('')
     : `<span style="color:var(--light);font-size:var(--text-sm);font-family:var(--mono)">No accounts explicitly whitelisted</span>`;
 
   document.getElementById('wl-banks-list').innerHTML = (wl.exempt_banks||[])
@@ -2019,8 +2041,8 @@ function renderWhitelistPanel(wl) {
     const note = buildingBlocksNote(snakeToCamelPattern(pat));
     return `
     <div class="wl-rule-item">
-      <div class="wl-rule-pattern">${pat}</div>
-      <div class="wl-rule-reason">${rule.reason}</div>
+      <div class="wl-rule-pattern">${escapeHtml(pat)}</div>
+      <div class="wl-rule-reason">${escapeHtml(rule.reason)}</div>
       ${note ? `<div style="font-size:10px;color:var(--blue);margin-top:4px">${note}</div>` : ''}
     </div>`;
   }).join('');

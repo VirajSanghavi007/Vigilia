@@ -11,6 +11,7 @@ networkx==3.6.1
 scikit-learn==1.8.0
 openpyxl
 psycopg2-binary
+argon2-cffi
 
 # ML deps (torch + torch_geometric) are installed separately by the Dockerfile
 # for Hugging Face Spaces — kept out of here so the base install stays light.

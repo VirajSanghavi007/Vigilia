@@ -19,6 +19,9 @@ htmlcov/
 # Dataset files (too large for git)
 data/
 
+# Generated graphify knowledge-graph output (local exploration tool)
+graphify-out/
+
 # Validation output (regenerated on each run)
 data/validation_results.json
 

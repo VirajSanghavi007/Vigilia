@@ -345,8 +345,14 @@ _AUTH_EXEMPT = {"/health", "/status", "/auth/login", "/", "/ingest"}
 _AUTH_EXEMPT_PREFIXES = ("/static/",)
 
 
+_IS_HF_SPACE = bool(os.environ.get("SPACE_ID"))
+
+
 def _get_session(request: Request) -> dict | None:
     if not db._DB_AVAILABLE:
+        if _IS_HF_SPACE:
+            # Fail closed in prod: a dead DB must not become "everyone is logged in".
+            return None
         return {"user_id": 0, "company_id": "ARGUS", "username": "demo"}
     token = request.headers.get("X-Session-Token") or request.cookies.get("session_token")
     if not token:
@@ -359,6 +365,8 @@ async def require_auth(request: Request, call_next):
     path = request.url.path
     if path in _AUTH_EXEMPT or any(path.startswith(p) for p in _AUTH_EXEMPT_PREFIXES):
         return await call_next(request)
+    if not db._DB_AVAILABLE and _IS_HF_SPACE:
+        return JSONResponse({"detail": "Service unavailable — database unreachable"}, status_code=503)
     session = _get_session(request)
     if not session:
         return JSONResponse({"detail": "Unauthorized"}, status_code=401)
@@ -372,13 +380,16 @@ class LoginRequest(BaseModel):
 
 
 @app.post("/auth/login")
-def auth_login(req: LoginRequest):
+@limiter.limit("5/minute")
+def auth_login(request: Request, req: LoginRequest):
     user = db.verify_user(req.company_id, req.username, req.password)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
     token = db.create_session(user["id"], user["company_id"], user["username"])
     response = JSONResponse({"token": token, "username": user["username"], "company_id": user["company_id"]})
-    response.set_cookie("session_token", token, httponly=True, samesite="lax", max_age=28800)
+    response.set_cookie(
+        "session_token", token, httponly=True, samesite="lax", max_age=28800, secure=_IS_HF_SPACE
+    )
     return response
 
 
@@ -438,7 +449,13 @@ class TransactionIn(BaseModel):
 
 def _check_ingest_key(request: Request) -> None:
     required = os.environ.get("ARGUS_INGEST_KEY")
-    if required and request.headers.get("X-API-Key") != required:
+    if not required:
+        if _IS_HF_SPACE:
+            # Fail closed in prod: never allow unauthenticated ingestion into
+            # the alert pipeline just because the operator forgot to set a key.
+            raise HTTPException(status_code=503, detail="Ingestion disabled — ARGUS_INGEST_KEY not configured")
+        return
+    if request.headers.get("X-API-Key") != required:
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
@@ -727,7 +744,7 @@ def get_alert(request: Request, alert_id: str):
 
 class DecisionBody(BaseModel):
     decision: DecisionType
-    reason: str = ""
+    reason: str = Field(default="", max_length=500)
     analyst: str = ""
 
 
@@ -961,7 +978,7 @@ def get_whitelist(request: Request):
 
 class WhitelistAddBody(BaseModel):
     account_id: str = Field(..., min_length=1)
-    reason: str = ""
+    reason: str = Field(default="", max_length=500)
 
 
 @app.post("/whitelist/account")
