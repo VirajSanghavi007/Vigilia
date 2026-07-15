@@ -338,6 +338,8 @@ def remove_whitelist_account(account_id: str) -> None:
 # passwords offline — the attacker also needs the pepper.
 
 _SESSION_TTL_HOURS = 8
+_MAX_FAILED_ATTEMPTS = 5
+_LOCKOUT_MINUTES = 15
 
 _ph = PasswordHasher()
 
@@ -365,18 +367,30 @@ def seed_default_users() -> None:
         # Set ARGUS_SEED_DEMO_USERS=1 to opt in explicitly (e.g. a demo Space).
         return
     defaults = [
-        ("UBI-AML-2026", "admin", "admin123"),
-        ("UBI-AML-2026", "analyst1", "analyst2026"),
-        ("UBI-AML-2026", "demo", "demo2026"),
+        ("UBI-AML-2026", "admin", "admin123", "admin"),
+        ("UBI-AML-2026", "analyst1", "analyst2026", "analyst"),
+        ("UBI-AML-2026", "demo", "demo2026", "analyst"),
     ]
     with _PGConn() as conn:
         with conn.cursor() as cur:
-            for company_id, username, password in defaults:
+            for company_id, username, password, role in defaults:
                 cur.execute(
-                    "INSERT INTO users (company_id,username,password_hash) VALUES (%s,%s,%s) "
+                    "INSERT INTO users (company_id,username,password_hash,role) VALUES (%s,%s,%s,%s) "
                     "ON CONFLICT DO NOTHING",
-                    (company_id, username, _hash_password(password))
+                    (company_id, username, _hash_password(password), role)
                 )
+
+
+def record_auth_event(company_id: str, username: str, success: bool, ip_address: str | None = None) -> None:
+    """Audit trail for every login attempt, success or failure (Issue: no visibility into brute-force attempts)."""
+    if not _DB_AVAILABLE:
+        return
+    with _PGConn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO auth_events (company_id,username,success,ip_address) VALUES (%s,%s,%s,%s)",
+                (company_id, username, success, ip_address)
+            )
 
 
 def verify_user(company_id: str, username: str, password: str) -> dict | None:
@@ -387,17 +401,48 @@ def verify_user(company_id: str, username: str, password: str) -> dict | None:
         return {"id": 0, "company_id": company_id or "ARGUS", "username": username or "demo", "role": "analyst"}
     # Argon2 embeds a random salt per hash, so the match can't happen in SQL
     # (unlike the old sha256 scheme) — fetch by identity, verify in Python.
-    sql = "SELECT id,company_id,username,role,password_hash FROM users WHERE company_id=%s AND username=%s"
+    sql = "SELECT id,company_id,username,role,password_hash,locked_until FROM users WHERE company_id=%s AND username=%s"
     with _PGConn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(sql, (company_id, username))
             row = cur.fetchone()
-    if not row or not _verify_password(password, row["password_hash"]):
-        return None
+
+            if not row:
+                return None
+            if row["locked_until"] and row["locked_until"] > datetime.now(timezone.utc):
+                return None
+
+            if not _verify_password(password, row["password_hash"]):
+                cur.execute(
+                    """UPDATE users SET failed_attempts = failed_attempts + 1,
+                       locked_until = CASE WHEN failed_attempts + 1 >= %s
+                                            THEN NOW() + make_interval(mins => %s)
+                                            ELSE locked_until END
+                       WHERE id = %s""",
+                    (_MAX_FAILED_ATTEMPTS, _LOCKOUT_MINUTES, row["id"])
+                )
+                return None
+
+            cur.execute("UPDATE users SET failed_attempts = 0, locked_until = NULL WHERE id = %s", (row["id"],))
     return {"id": row["id"], "company_id": row["company_id"], "username": row["username"], "role": row["role"]}
 
 
-def create_session(user_id: int, company_id: str, username: str) -> str:
+def change_password(company_id: str, username: str, current_password: str, new_password: str) -> bool:
+    """Verify current_password (reuses verify_user, so a wrong current
+    password counts toward the same lockout as a failed login), then rehash
+    and store new_password. Returns False if current_password is wrong."""
+    if not _DB_AVAILABLE:
+        return True
+    user = verify_user(company_id, username, current_password)
+    if not user:
+        return False
+    with _PGConn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE users SET password_hash=%s WHERE id=%s", (_hash_password(new_password), user["id"]))
+    return True
+
+
+def create_session(user_id: int, company_id: str, username: str, role: str = "analyst") -> str:
     if not _DB_AVAILABLE:
         return secrets.token_urlsafe(32)
     token = secrets.token_urlsafe(32)
@@ -405,19 +450,19 @@ def create_session(user_id: int, company_id: str, username: str) -> str:
     with _PGConn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO sessions (token,user_id,company_id,username,expires_at) VALUES (%s,%s,%s,%s,%s)",
-                (token, user_id, company_id, username, expires)
+                "INSERT INTO sessions (token,user_id,company_id,username,role,expires_at) VALUES (%s,%s,%s,%s,%s,%s)",
+                (token, user_id, company_id, username, role, expires)
             )
     return token
 
 
 def validate_session(token: str) -> dict | None:
     if not _DB_AVAILABLE:
-        return {"user_id": 0, "company_id": "ARGUS", "username": "demo"} if token else None
+        return {"user_id": 0, "company_id": "ARGUS", "username": "demo", "role": "admin"} if token else None
     with _PGConn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
-                "SELECT user_id,company_id,username FROM sessions WHERE token=%s AND expires_at > NOW()",
+                "SELECT user_id,company_id,username,role FROM sessions WHERE token=%s AND expires_at > NOW()",
                 (token,)
             )
             row = cur.fetchone()
@@ -430,3 +475,13 @@ def delete_session(token: str) -> None:
     with _PGConn() as conn:
         with conn.cursor() as cur:
             cur.execute("DELETE FROM sessions WHERE token=%s", (token,))
+
+
+def delete_all_sessions_for_user(user_id: int) -> int:
+    """Log out every device/session for this user (Issue: no way to revoke a leaked token)."""
+    if not _DB_AVAILABLE:
+        return 0
+    with _PGConn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM sessions WHERE user_id=%s", (user_id,))
+            return cur.rowcount

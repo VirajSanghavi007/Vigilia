@@ -5,6 +5,59 @@ Newest entry on top.
 
 ---
 
+## 2026-07-15 — RBAC, session revocation, account lockout, login audit trail
+
+Follow-up on the auth/authz gap list from earlier today. Fixed 4 of 6:
+
+1. **RBAC enforced.** `users.role` was fetched but never checked anywhere.
+   Added `require_role(*roles)` FastAPI dependency ([main.py](src/backend/api/main.py)),
+   gated `/whitelist/account` add + remove to `role="admin"` only — highest
+   blast-radius action (changes what gets flagged system-wide), everything
+   else stays open to any analyst since that's the core review workflow.
+   Role is now denormalized onto the `sessions` row at login (avoids a join
+   per request; refreshes on next login if role ever changes).
+2. **Session revocation.** Added `POST /auth/logout-all` — deletes every
+   session row for the current user. No UI hookup yet, just the endpoint.
+3. **Account lockout added**, not just IP rate-limiting. `users` gained
+   `failed_attempts` + `locked_until` columns; 5 failed logins locks the
+   account for 15 minutes regardless of source IP (closes the "rate limit
+   is IP-based, distributed attacker isn't slowed" gap). Reset to 0 on
+   successful login.
+4. **Login audit trail.** New `auth_events` table logs every login attempt
+   — success or failure, username, company_id, IP, timestamp. Previously
+   only successes left a trace (a `sessions` row); failures were invisible.
+
+New migration: `src/database/migrations/0002_auth_hardening.sql`. Updated
+`schema_postgres.sql` snapshot to match (per the migrations README's own
+rule to keep it in sync as documentation).
+
+**Bug caught mid-implementation:** `seed_default_users()` inserted all three
+default users without specifying `role`, so the seeded `admin` account would
+have silently gotten the DB default `role='analyst'` — meaning the only
+seeded "admin" user couldn't have used the new admin-gated whitelist routes.
+Fixed by passing role explicitly per seeded user.
+
+**Password strength — resolved.** Built `POST /auth/change-password`
+([main.py](src/backend/api/main.py), `db.change_password` in
+[service.py](src/database/service.py)): verifies `current_password` by
+reusing `verify_user` (so a wrong current-password attempt counts toward the
+same 5-attempt lockout as a failed login — free protection), requires
+`new_password` ≥10 chars with a letter and a digit, rejects if unchanged from
+current, then rehashes with argon2 and revokes every session for that user
+(including the current device) — forces fresh login everywhere post-change.
+
+**Not fixed, with reasons:**
+- **Dual token intake** (`X-Session-Token` header vs cookie) — left as-is,
+  intentional (API clients vs browser use different transport), not a bug.
+
+**Verification gap:** syntax-checked and logic-reviewed, but the DB-backed
+parts (lockout, audit log, session role persistence) couldn't be exercised
+live — Supabase is currently disconnected in this environment (see the
+earlier "disconnected Supabase" session). Needs a real Postgres connection
+to actually test lockout-after-5-attempts and audit-log writes end-to-end.
+
+---
+
 ## 2026-07-15 — Red-team pass fixes + argon2 password hashing
 
 Ran `/thinking-red-team` against auth/session/ingest/rendering code. Every

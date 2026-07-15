@@ -31,12 +31,14 @@ CREATE TABLE IF NOT EXISTS decisions (
 );
 
 CREATE TABLE IF NOT EXISTS users (
-    id            SERIAL PRIMARY KEY,
-    company_id    TEXT NOT NULL,
-    username      TEXT NOT NULL,
-    password_hash TEXT NOT NULL,
-    role          TEXT DEFAULT 'analyst',
-    created_at    TIMESTAMPTZ DEFAULT NOW(),
+    id              SERIAL PRIMARY KEY,
+    company_id      TEXT NOT NULL,
+    username        TEXT NOT NULL,
+    password_hash   TEXT NOT NULL,
+    role            TEXT DEFAULT 'analyst',
+    failed_attempts INTEGER NOT NULL DEFAULT 0,
+    locked_until    TIMESTAMPTZ,
+    created_at      TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(company_id, username)
 );
 
@@ -45,8 +47,19 @@ CREATE TABLE IF NOT EXISTS sessions (
     user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     company_id TEXT NOT NULL,
     username   TEXT NOT NULL,
+    role       TEXT NOT NULL DEFAULT 'analyst',
     created_at TIMESTAMPTZ DEFAULT NOW(),
     expires_at TIMESTAMPTZ NOT NULL
+);
+
+-- Login attempt audit trail — every attempt, success or failure.
+CREATE TABLE IF NOT EXISTS auth_events (
+    id         SERIAL PRIMARY KEY,
+    company_id TEXT NOT NULL,
+    username   TEXT NOT NULL,
+    success    BOOLEAN NOT NULL,
+    ip_address TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Live ingestion queue (transactions POSTed via /ingest, pending next scan)

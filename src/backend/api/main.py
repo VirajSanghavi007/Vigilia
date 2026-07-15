@@ -2,6 +2,7 @@
 import asyncio
 import json
 import os
+import re
 import threading
 import time
 import uuid
@@ -14,7 +15,7 @@ from pathlib import Path
 
 import numpy as np
 import io
-from fastapi import FastAPI, HTTPException, Query, Request, UploadFile, File, Form
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.responses import Response
@@ -353,11 +354,24 @@ def _get_session(request: Request) -> dict | None:
         if _IS_HF_SPACE:
             # Fail closed in prod: a dead DB must not become "everyone is logged in".
             return None
-        return {"user_id": 0, "company_id": "ARGUS", "username": "demo"}
+        return {"user_id": 0, "company_id": "ARGUS", "username": "demo", "role": "admin"}
     token = request.headers.get("X-Session-Token") or request.cookies.get("session_token")
     if not token:
         return None
     return db.validate_session(token)
+
+
+def require_role(*allowed_roles: str):
+    """Endpoint dependency gating access by session role (Issue: `users.role` was
+    stored but never enforced — every logged-in user had identical access)."""
+    def _check(request: Request):
+        session = _get_session(request)
+        if not session:
+            raise HTTPException(status_code=401, detail="Unauthorized")
+        if session.get("role") not in allowed_roles:
+            raise HTTPException(status_code=403, detail="Forbidden — insufficient role")
+        return session
+    return _check
 
 
 @app.middleware("http")
@@ -383,13 +397,50 @@ class LoginRequest(BaseModel):
 @limiter.limit("5/minute")
 def auth_login(request: Request, req: LoginRequest):
     user = db.verify_user(req.company_id, req.username, req.password)
+    db.record_auth_event(req.company_id, req.username, success=bool(user), ip_address=get_remote_address(request))
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    token = db.create_session(user["id"], user["company_id"], user["username"])
+    token = db.create_session(user["id"], user["company_id"], user["username"], user["role"])
     response = JSONResponse({"token": token, "username": user["username"], "company_id": user["company_id"]})
     response.set_cookie(
         "session_token", token, httponly=True, samesite="lax", max_age=28800, secure=_IS_HF_SPACE
     )
+    return response
+
+
+_PASSWORD_RE = re.compile(r"^(?=.*[A-Za-z])(?=.*\d).{10,}$")
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@app.post("/auth/change-password")
+@limiter.limit("5/minute")
+def auth_change_password(request: Request, body: ChangePasswordRequest):
+    """Only user-facing path that creates a password, so this is where
+    strength gets enforced — nothing else calls _hash_password with
+    user-supplied input (Issue: no password-strength requirement existed
+    anywhere because no such endpoint existed)."""
+    session = _get_session(request)
+    if not session:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    if not _PASSWORD_RE.match(body.new_password):
+        raise HTTPException(
+            status_code=400,
+            detail="New password must be at least 10 characters and include a letter and a digit",
+        )
+    if body.new_password == body.current_password:
+        raise HTTPException(status_code=400, detail="New password must differ from current password")
+    ok = db.change_password(session["company_id"], session["username"], body.current_password, body.new_password)
+    if not ok:
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+    # Force re-login everywhere, including this device — a changed password
+    # should invalidate every session that predates the change.
+    db.delete_all_sessions_for_user(session["user_id"])
+    response = JSONResponse({"ok": True, "message": "Password changed — please log in again"})
+    response.delete_cookie("session_token")
     return response
 
 
@@ -399,6 +450,19 @@ def auth_logout(request: Request):
     if token:
         db.delete_session(token)
     response = JSONResponse({"ok": True})
+    response.delete_cookie("session_token")
+    return response
+
+
+@app.post("/auth/logout-all")
+def auth_logout_all(request: Request):
+    """Revoke every session for the current user (Issue: a leaked token was
+    valid until natural expiry with no way to kill it early)."""
+    session = _get_session(request)
+    if not session:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    revoked = db.delete_all_sessions_for_user(session["user_id"])
+    response = JSONResponse({"ok": True, "revoked": revoked})
     response.delete_cookie("session_token")
     return response
 
@@ -983,16 +1047,17 @@ class WhitelistAddBody(BaseModel):
 
 @app.post("/whitelist/account")
 @limiter.limit("20/minute")
-def whitelist_add(request: Request, body: WhitelistAddBody):
-    """Add account to whitelist (Issue #1: rate limited)."""
+def whitelist_add(request: Request, body: WhitelistAddBody, _session=Depends(require_role("admin"))):
+    """Add account to whitelist — admin only (Issue #1: rate limited; changes
+    what gets flagged system-wide, so any analyst having this was too broad)."""
     wl = add_to_whitelist(body.account_id, body.reason)
     return {"status": "added", "account_id": body.account_id, "whitelist": wl}
 
 
 @app.delete("/whitelist/account/{account_id}")
 @limiter.limit("20/minute")
-def whitelist_remove(request: Request, account_id: str):
-    """Remove account from whitelist (Issue #1: rate limited)."""
+def whitelist_remove(request: Request, account_id: str, _session=Depends(require_role("admin"))):
+    """Remove account from whitelist — admin only (Issue #1: rate limited)."""
     wl = remove_from_whitelist(account_id)
     return {"status": "removed", "account_id": account_id}
 
