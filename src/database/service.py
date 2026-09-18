@@ -1,14 +1,12 @@
 """
 Database service — PostgreSQL only.
 
-Requires DATABASE_URL to be set (Supabase / any managed Postgres). There is
+Requires DATABASE_URL to be set (any managed Postgres). There is
 no local-file fallback: alerts, decisions, sessions, live-ingest queue, and
 the whitelist all live in Postgres so they survive container restarts.
 
 Usage:
   export DATABASE_URL=postgresql://user:pass@host:5432/argus
-  # or for Supabase:
-  export DATABASE_URL=postgresql://postgres:<password>@db.<project>.supabase.co:5432/postgres
 """
 
 import json
@@ -131,6 +129,29 @@ def replace_alerts(alerts: list[dict], scan_id: str = "") -> int:
                      json.dumps(a), scan_id)
                 )
     logger.info(f"Persisted {len(alerts)} alerts (scan_id={scan_id or 'n/a'})")
+    return len(alerts)
+
+
+def upsert_alerts(alerts: list[dict], scan_id: str = "") -> int:
+    """Add/update alerts without touching existing rows (unlike replace_alerts,
+    which wipes the table first). Used for incremental live-ingest alerts so
+    they're durable in Postgres immediately — not just held in one process's
+    in-memory ALERTS dict until the next full batch scan or restart-replay."""
+    if not _DB_AVAILABLE:
+        return len(alerts)
+    with _PGConn() as conn:
+        with conn.cursor() as cur:
+            for a in alerts:
+                cur.execute(
+                    "INSERT INTO alerts (id,pattern_type,severity,confidence,ml_score,"
+                    "total_moved,node_count,txn_count,source,payload,scan_id) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) "
+                    "ON CONFLICT(id) DO UPDATE SET payload=EXCLUDED.payload",
+                    (a["id"], a.get("patternType"), a.get("severity"), a.get("confidence"),
+                     a.get("mlScore"), a.get("totalMoved"), len(a.get("nodes", [])),
+                     len(a.get("transactions", [])), a.get("source", "live_ingest"),
+                     json.dumps(a), scan_id)
+                )
     return len(alerts)
 
 
@@ -366,6 +387,10 @@ def seed_default_users() -> None:
         # Never auto-plant known admin/admin123-style credentials in prod.
         # Set ARGUS_SEED_DEMO_USERS=1 to opt in explicitly (e.g. a demo Space).
         return
+    logger.warning(
+        "Seeding well-known demo credentials (admin/admin123, analyst1/analyst2026, "
+        "demo/demo2026) — never leave these active on a reachable deployment."
+    )
     defaults = [
         ("UBI-AML-2026", "admin", "admin123", "admin"),
         ("UBI-AML-2026", "analyst1", "analyst2026", "analyst"),

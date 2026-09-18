@@ -28,6 +28,9 @@ data/validation_results.json
 # whitelist.json is intentionally committed — do NOT add it here
 # data/whitelist.json
 
+# Claude Code personal overrides (not shared with the team)
+.claude/settings.local.json
+
 # IDE / editor
 .vscode/
 .idea/

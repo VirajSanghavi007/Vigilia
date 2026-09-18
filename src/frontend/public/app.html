@@ -323,7 +323,7 @@
         <div class="graph-area">
           <div id="cy" role="img" aria-label="Transaction network graph"></div>
           <div class="graph-toolbar" role="toolbar" aria-label="Graph controls">
-            <button class="graph-btn" onclick="resetHighlight();cy&&cy.fit(undefined,40)" aria-label="Fit graph to view">Fit</button>
+            <button class="graph-btn" onclick="resetHighlight();fitGraph()" aria-label="Fit graph to view">Fit</button>
           </div>
         </div>
         <div class="inv-timeline" aria-label="Transaction timeline">
@@ -638,7 +638,7 @@
   </div>
   <div id="toasts" aria-live="polite" aria-label="Notifications"></div>
 
-  <script src="/static/js/app.js?v=30"></script>
+  <script type="module" src="/static/js/app.js?v=31"></script>
 </body>
 
 </html>
