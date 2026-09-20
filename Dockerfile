@@ -5,7 +5,8 @@ FROM python:3.13-slim
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1 \
     PATH="/app/.venv/bin:$PATH" \
-    UV_PYTHON_PREFERENCE=only-system
+    UV_PYTHON_PREFERENCE=only-system \
+    UV_PYTHON=3.13
 
 # Without UV_PYTHON_PREFERENCE, `uv sync` ignores this image's own Python
 # and downloads its own standalone CPython build instead (visible in build
@@ -14,6 +15,13 @@ ENV PYTHONUNBUFFERED=1 \
 # is what Trivy was actually flagging (GHSA-6v7p-g79w-8964, CVE-2025-47273)
 # -- unrelated to any dependency version we pin ourselves, which is why
 # bumping torch/torch_geometric didn't change the findings.
+#
+# UV_PYTHON=3.13 (minor only) overrides the repo's .python-version pin
+# (3.13.4 exact) just for this image build -- the base image's system
+# Python is a different 3.13.x patch, and only-system now requires an
+# exact interpreter match rather than silently falling back to a managed
+# download. Scoped to the Dockerfile so local dev's .python-version pin is
+# untouched.
 
 COPY --from=ghcr.io/astral-sh/uv:0.12.13 /uv /uvx /bin/
 
