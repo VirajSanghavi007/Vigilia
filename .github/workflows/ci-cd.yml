@@ -1,0 +1,237 @@
+name: CI/CD
+
+on:
+  push:
+    branches:
+      - development
+      - production
+
+permissions:
+  contents: read
+  security-events: write
+
+env:
+  UV_VERSION: "0.12.13"
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  # ── Lint ──────────────────────────────────────────────────────────────────
+  lint:
+    name: Lint (ruff)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2022]
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5.2.2
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Sync deps (core + dev, locked)
+        run: uv sync --locked --group dev
+
+      - name: Ruff check
+        run: uv run ruff check src
+
+  # ── Unit tests (fast, no torch) — both branches ─────────────────────────────
+  unit-tests:
+    name: Unit tests
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2022]
+    env:
+      DATABASE_URL: "postgresql://placeholder:placeholder@localhost:5432/placeholder"
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5.2.2
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Sync deps (core + dev, locked)
+        run: uv sync --locked --group dev
+
+      - name: Run unit tests
+        working-directory: src
+        run: uv run --project .. pytest backend/tests/unit -v
+
+  # ── Smoke tests (loads model, one input, checks output) — production only ──
+  smoke-tests:
+    name: Smoke tests
+    if: github.ref == 'refs/heads/production'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2022]
+    env:
+      DATABASE_URL: "postgresql://placeholder:placeholder@localhost:5432/placeholder"
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5.2.2
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Sync deps (core + ml + dev, locked)
+        run: uv sync --locked --extra ml --group dev
+
+      - name: Run smoke tests
+        working-directory: src
+        run: uv run --project .. pytest backend/tests/smoke -v
+
+  # ── Integration tests (API endpoints) — production only ────────────────────
+  integration-tests:
+    name: Integration tests
+    if: github.ref == 'refs/heads/production'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2022]
+    env:
+      DATABASE_URL: "postgresql://placeholder:placeholder@localhost:5432/placeholder"
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5.2.2
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Sync deps (core + dev, locked)
+        run: uv sync --locked --group dev
+
+      # GitHub-hosted service containers (the `services:` job key) only work on
+      # Linux runners — Windows/macOS runners have no Docker daemon available
+      # to the job. So on Linux we spin up a real Postgres here and point
+      # DATABASE_URL at it; on Windows there's deliberately no DB, and the
+      # DB-backed tests skip themselves via the `pg_available` fixture in
+      # conftest.py rather than failing against a dead connection.
+      - name: Start Postgres (Linux only)
+        if: runner.os == 'Linux'
+        run: |
+          docker run -d --name pg-test \
+            -e POSTGRES_USER=placeholder -e POSTGRES_PASSWORD=placeholder -e POSTGRES_DB=placeholder \
+            -p 5432:5432 postgres:16
+          for i in $(seq 1 30); do
+            docker exec pg-test pg_isready -U placeholder && break
+            sleep 1
+          done
+
+      - name: Run integration tests
+        working-directory: src
+        run: uv run --project .. pytest backend/tests/integration -v
+
+  # ── Security scanning ────────────────────────────────────────────────────
+  security:
+    name: Security scanning
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5.2.2
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Sync deps (core + dev, locked)
+        run: uv sync --locked --group dev
+
+      - name: Bandit (static security lint)
+        run: uv run bandit -r src --severity-level medium -x src/frontend
+
+      - name: pip-audit (dependency vulnerabilities)
+        uses: pypa/gh-action-pip-audit@v1.1.0
+        with:
+          inputs: uv.lock
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3.27.9
+        with:
+          languages: python
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3.27.9
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v3.27.9
+
+      - name: Build image for Trivy scan
+        run: docker build -t vigilia:scan .
+
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@0.29.0
+        with:
+          image-ref: vigilia:scan
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+          ignore-unfixed: true
+
+  # ── Docker build ─────────────────────────────────────────────────────────
+  docker-build:
+    name: Build Docker image
+    runs-on: ubuntu-22.04
+    needs: [lint, unit-tests, security]
+    if: always() && needs.lint.result == 'success' && needs.unit-tests.result == 'success' && needs.security.result == 'success'
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3.8.0
+
+      - name: Build image
+        uses: docker/build-push-action@v6.10.0
+        with:
+          context: .
+          push: false
+          tags: vigilia:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ── Continuous Delivery — production only, requires human approval ────────
+  # Not pushing to a registry yet. This job exists purely as the manual
+  # approval gate: it will not run a single step until someone approves the
+  # "production" environment (Settings → Environments → production →
+  # required reviewers). Wire in the real deploy command once a target
+  # (registry push, HF Spaces, etc.) is decided.
+  deploy:
+    name: Deploy (production)
+    runs-on: ubuntu-22.04
+    needs: [docker-build, smoke-tests, integration-tests, security]
+    if: >-
+      github.ref == 'refs/heads/production' &&
+      needs.docker-build.result == 'success' &&
+      needs.smoke-tests.result == 'success' &&
+      needs.integration-tests.result == 'success' &&
+      needs.security.result == 'success'
+    environment:
+      name: production
+    steps:
+      - name: Deploy placeholder
+        run: |
+          echo "No deploy target configured yet — add the real deploy steps here."
+          echo "This job only exists to require human approval before anything ships."

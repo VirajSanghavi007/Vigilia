@@ -5,15 +5,16 @@ FROM python:3.13-slim
 WORKDIR /app
 ENV PYTHONPATH=src \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    UV_PROJECT_ENVIRONMENT=/usr/local
 
-# Core API deps
-COPY requirements.txt .
-RUN pip install -r requirements.txt
+COPY --from=ghcr.io/astral-sh/uv:0.12.13 /uv /uvx /bin/
 
-# ML deps (CPU torch + torch_geometric) — the heavy part HF can handle
-RUN pip install torch==2.12.1 --index-url https://download.pytorch.org/whl/cpu \
- && pip install torch_geometric==2.8.0
+# Install from the SAME uv.lock that CI resolves and tests against — the
+# CPU torch/torch_geometric extra included, so this image is exactly what
+# smoke tests exercised, not a fresh `pip install` re-resolving against
+# whatever's on PyPI/HF today.
+COPY pyproject.toml uv.lock ./
+RUN uv sync --locked --extra ml --no-dev
 
 # App code + the committed cache/model (datasets are excluded via .dockerignore)
 COPY . .
