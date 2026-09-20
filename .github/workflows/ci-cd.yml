@@ -161,6 +161,13 @@ jobs:
       - name: Bandit (static security lint)
         run: uv run bandit -r src --severity-level medium
 
+      # `uv sync` venvs don't ship a `pip` module (uv installs packages
+      # itself) — the pip-audit action shells out to `python -m pip` inside
+      # whatever VIRTUAL_ENV setup-uv exported, so without this it fails
+      # with "No module named pip" before it ever gets to scanning.
+      - name: Ensure pip is present for the pip-audit action
+        run: uv pip install pip
+
       - name: pip-audit (dependency vulnerabilities)
         uses: pypa/gh-action-pip-audit@v1.1.0
         with:

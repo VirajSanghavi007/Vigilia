@@ -5,21 +5,65 @@
 Vigilia is a **research-grade, production-target AML (anti-money-laundering) graph ML system**. Priority order for every decision:
 
 1. **AI/ML correctness and rigor first** — the model, features, graph construction, and evaluation methodology are the core deliverable and must hold up to research and production scrutiny (not a toy/demo model).
-2. **Production-quality engineering second** — backend, frontend, infra, and other stacks exist to serve the AI/ML core reliably. They matter, but they are not the point of the project.
+2. **Production-quality engineering second** — backend, ML infra, and other stacks exist to serve the AI/ML core reliably. They matter, but they are not the point of the project.
 3. Everything else (docs, tooling, polish) comes after both.
 
 This is **not** a quick prototype and **not** a portfolio throwaway. Treat it as if it will run in production on real data, be audited, and be extended by other researchers/engineers later.
 
-## Known state of the codebase (as of this writing — verify before relying on it)
+## Current state (2026-09-20 — verify before relying on it)
 
-The owner has flagged this codebase as currently rough, from a place of self-critique, not as a permanent excuse:
+The codebase was deliberately wiped and restarted from a layered-architecture skeleton (previous version had real but architecturally tangled AML detection/GNN/auth/DB logic — see git history before this point if you need to reference what existed). Right now:
 
-- FastAPI is used without async or dependency injection where it should be.
-- The model referred to as "multignn" is reportedly just a PNAConv, not an actual multi-relational/heterogeneous GNN — naming and implementation don't match.
-- Hardcoded values exist that break on machines other than the owner's.
-- Standard AML-project features/capabilities are likely missing.
+- Only `src/vigilia/api/main.py` (a bare `/health` endpoint) and `src/vigilia/ml/registry/` (model registry, see below) have real logic. Every other package under `src/vigilia/` is an empty layer stub with a docstring describing its purpose.
+- Detection pipeline, GNN model, graph construction, auth, and the Postgres layer do **not exist yet** — they're being rebuilt deliberately inside this structure, not resurrected wholesale from memory of the old code.
+- Do not assume anything beyond what's listed above is implemented. Read the relevant package before claiming it does something.
 
-Do not assume these are fixed. Confirm current state by reading the relevant code before making claims about it.
+## Architecture: layered / modular monolith
+
+```
+src/vigilia/
+├── api/      FastAPI only — routers, schemas, deps. No business logic.
+├── domain/   Framework-agnostic business logic (alerts, whitelist, auth rules).
+│             No fastapi/psycopg2/boto3/torch imports here.
+├── ml/       Graph construction, model defs, training, inference, registry.
+├── infra/    The only layer allowed to import psycopg2/boto3/etc. Implements
+│             interfaces domain/ defines (dependency inversion).
+└── shared/   Logging, exceptions. No dependency on any other layer.
+```
+
+**Dependency rule**: `api → domain/ml/infra`, `ml → domain`, `infra` implements interfaces `domain` defines. Never the reverse — `domain/` must stay importable with zero framework/infra dependencies. If you're about to import `fastapi` or `psycopg2` inside `domain/`, stop; that logic belongs in `api/` or `infra/`, or `domain/` needs a Protocol instead.
+
+## Model registry (`src/vigilia/ml/registry/`)
+
+Models are never referenced by filename (no `model_final_v3.pkl`). A version is a record: `{YYYYMMDD}-{git_sha}-{run_id}`, with weights + `metadata.json` (metrics, git SHA, training-data hash, feature schema) stored together, plus a separate "stage" pointer (e.g. `production`) recording which version is actually live.
+
+- `get_registry()` is the only way to obtain a registry instance — never instantiate `LocalRegistry` directly in application code.
+- **`LocalRegistry` (filesystem-backed) is the only backend right now** — no AWS account/bucket exists yet. An `S3Registry` may be added later behind the same `ModelRegistry` interface; don't build one speculatively before there's a bucket to point it at.
+- Registry data lives under `data/model_registry/` (gitignored).
+
+## Build / test / lint commands
+
+Dependency management is [uv](https://docs.astral.sh/uv/) — `pyproject.toml` + `uv.lock` are the single source of truth. Never add a `requirements*.txt`.
+
+```bash
+uv sync --locked --group dev        # core + dev deps (pytest, ruff, bandit, httpx)
+uv sync --locked --extra ml --group dev   # + torch/torch_geometric (CPU wheels)
+
+uv run pytest tests/unit -v          # fast, no torch/DB
+uv run pytest tests/smoke -v         # loads the model, one input, checks output
+uv run pytest tests/integration -v   # real API via TestClient (+ Postgres on Linux CI)
+
+uv run ruff check src tests          # lint — CI-blocking, not advisory
+uv run bandit -r src --severity-level medium
+```
+
+Adding a dependency: edit `pyproject.toml` (`dependencies`, `project.optional-dependencies.ml`, or `dependency-groups.dev`), then `uv lock`, then commit `uv.lock`. Don't hand-edit `uv.lock`.
+
+## CI/CD (`.github/workflows/ci-cd.yml`)
+
+Two branches: `development` (default, where work happens) and `production`. On every push: lint + unit tests (both branches, both OS in the matrix — ubuntu-22.04 and windows-2022) and security scanning (bandit, pip-audit, CodeQL, Trivy). Smoke tests, integration tests, Docker build, and the deploy gate run **production-only**. `deploy` requires manual approval on the GitHub `production` environment — it has no real deploy target wired in yet (placeholder step).
+
+Windows CI runners have no Docker daemon, so integration tests only get a real Postgres container on Linux; on Windows, DB-backed tests must skip themselves (via a `pg_available`-style fixture) rather than fail against a dead connection — preserve that pattern when integration tests are rebuilt.
 
 ## Hard rule: no unreviewed code changes
 
@@ -32,5 +76,6 @@ Do not assume these are fixed. Confirm current state by reading the relevant cod
 ## Practical implications for future sessions
 
 - When asked to fix or build something, state the plan and reasoning first if it's non-trivial; don't just start editing.
-- Don't paper over the known issues above with quick patches unless asked — flag them and let the user decide priority (model correctness issues in particular should never be silently "fixed" without discussion, since they may change results).
-- When editing, call out explicitly which known issue (if any) a change addresses, or state that it's unrelated and why it's needed.
+- Model/detection correctness decisions (thresholds, architecture, evaluation methodology) should never be silently changed without discussion, since they change results.
+- When editing, call out explicitly which known gap (if any) a change addresses, or state that it's unrelated and why it's needed.
+- Don't add a new top-level dependency source (a second requirements file, a vendored copy of something) — `pyproject.toml`/`uv.lock` is the only one, on purpose (past drift between a requirements file and the lockfile was a real bug here).

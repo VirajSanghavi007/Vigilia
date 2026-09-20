@@ -6,6 +6,11 @@ timestamp, feature schema) — plus, separately, which version each
 deployment *stage* (e.g. "production") currently points at. Filenames like
 `model_final_v3.pkl` encode none of that and can't tell you what produced
 the file or whether it's actually the one serving traffic.
+
+LocalRegistry (filesystem-backed) is the only implementation right now —
+see local_registry.py. The `uri` a version stores is deliberately backend-
+agnostic (a path today, could be an s3:// URI later) so a future remote
+backend is a new ModelRegistry implementation, not a format change.
 """
 
 from __future__ import annotations

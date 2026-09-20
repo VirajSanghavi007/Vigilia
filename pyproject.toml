@@ -22,9 +22,6 @@ ml = [
     "torch==2.12.1",
     "torch_geometric==2.8.0",
 ]
-registry-s3 = [
-    "boto3",
-]
 
 [dependency-groups]
 dev = [
