@@ -4,7 +4,7 @@ FROM python:3.13-slim
 
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1 \
-    UV_PROJECT_ENVIRONMENT=/usr/local
+    PATH="/app/.venv/bin:$PATH"
 
 COPY --from=ghcr.io/astral-sh/uv:0.12.13 /uv /uvx /bin/
 

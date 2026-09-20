@@ -194,23 +194,33 @@ jobs:
       - name: Perform CodeQL analysis
         uses: github/codeql-action/analyze@v3.27.9
 
-      - name: Build image for Trivy scan
-        run: docker build -t vigilia:scan .
-
-      - name: Trivy vulnerability scan
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          image-ref: vigilia:scan
-          severity: CRITICAL,HIGH
-          exit-code: "1"
-          ignore-unfixed: true
-
   # ── Docker build ─────────────────────────────────────────────────────────
+  # Builds the image exactly ONCE and scans that same build with Trivy —
+  # previously `security` built its own throwaway `vigilia:scan` image
+  # independently of this job's build, which was pure waste (every push
+  # paid for two identical builds) and meant the image Trivy scanned was
+  # never actually the candidate artifact this job produces.
+  #
+  # `needs` includes smoke-tests and integration-tests deliberately, even
+  # though they only run on `production` (skipped, not failed, on
+  # `development`) — this job is the thing `deploy` ships, so it should
+  # depend on those gates directly instead of `deploy` re-checking them
+  # after the image was already built. `always()` is required here because
+  # by default a `needs:` job with result `skipped` auto-skips this job too;
+  # we want to *tolerate* skip (expected on development) while still
+  # blocking on an actual failure (`== 'success'` only, never `skipped`, for
+  # lint/unit-tests/security, which always run).
   docker-build:
     name: Build Docker image
     runs-on: ubuntu-22.04
-    needs: [lint, unit-tests, security]
-    if: always() && needs.lint.result == 'success' && needs.unit-tests.result == 'success' && needs.security.result == 'success'
+    needs: [lint, unit-tests, security, smoke-tests, integration-tests]
+    if: >-
+      always() &&
+      needs.lint.result == 'success' &&
+      needs.unit-tests.result == 'success' &&
+      needs.security.result == 'success' &&
+      contains(fromJSON('["success", "skipped"]'), needs.smoke-tests.result) &&
+      contains(fromJSON('["success", "skipped"]'), needs.integration-tests.result)
     steps:
       - uses: actions/checkout@v4.2.2
 
@@ -222,9 +232,18 @@ jobs:
         with:
           context: .
           push: false
+          load: true
           tags: vigilia:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: vigilia:${{ github.sha }}
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+          ignore-unfixed: true
 
   # ── Continuous Delivery — production only, requires human approval ────────
   # Not pushing to a registry yet. This job exists purely as the manual
@@ -232,16 +251,16 @@ jobs:
   # "production" environment (Settings → Environments → production →
   # required reviewers). Wire in the real deploy command once a target
   # (registry push, HF Spaces, etc.) is decided.
+  #
+  # Only needs docker-build: that job's own `if:` already required
+  # lint/unit-tests/security to succeed and smoke-tests/integration-tests to
+  # succeed-or-skip, so re-checking all of them here would just be the same
+  # condition twice.
   deploy:
     name: Deploy (production)
     runs-on: ubuntu-22.04
-    needs: [docker-build, smoke-tests, integration-tests, security]
-    if: >-
-      github.ref == 'refs/heads/production' &&
-      needs.docker-build.result == 'success' &&
-      needs.smoke-tests.result == 'success' &&
-      needs.integration-tests.result == 'success' &&
-      needs.security.result == 'success'
+    needs: [docker-build]
+    if: github.ref == 'refs/heads/production' && needs.docker-build.result == 'success'
     environment:
       name: production
     steps:
