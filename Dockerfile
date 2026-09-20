@@ -3,8 +3,7 @@
 FROM python:3.13-slim
 
 WORKDIR /app
-ENV PYTHONPATH=src \
-    PYTHONUNBUFFERED=1 \
+ENV PYTHONUNBUFFERED=1 \
     UV_PROJECT_ENVIRONMENT=/usr/local
 
 COPY --from=ghcr.io/astral-sh/uv:0.12.13 /uv /uvx /bin/
@@ -13,12 +12,14 @@ COPY --from=ghcr.io/astral-sh/uv:0.12.13 /uv /uvx /bin/
 # CPU torch/torch_geometric extra included, so this image is exactly what
 # smoke tests exercised, not a fresh `pip install` re-resolving against
 # whatever's on PyPI/HF today.
+# Two-pass sync so dependency install (slow) is cached separately from the
+# local `vigilia` package build (fast, changes every commit):
 COPY pyproject.toml uv.lock ./
-RUN uv sync --locked --extra ml --no-dev
+RUN uv sync --locked --extra ml --no-dev --no-install-project
 
-# App code + the committed cache/model (datasets are excluded via .dockerignore)
 COPY . .
+RUN uv sync --locked --extra ml --no-dev
 
 # HF Spaces routes to port 7860 by default
 EXPOSE 7860
-CMD ["sh", "-c", "uvicorn backend.api.main:app --host 0.0.0.0 --port ${PORT:-7860}"]
+CMD ["sh", "-c", "uvicorn vigilia.api.main:app --host 0.0.0.0 --port ${PORT:-7860}"]

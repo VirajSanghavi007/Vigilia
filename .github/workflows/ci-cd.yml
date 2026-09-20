@@ -38,7 +38,7 @@ jobs:
         run: uv sync --locked --group dev
 
       - name: Ruff check
-        run: uv run ruff check src
+        run: uv run ruff check src tests
 
   # ── Unit tests (fast, no torch) — both branches ─────────────────────────────
   unit-tests:
@@ -65,8 +65,7 @@ jobs:
         run: uv sync --locked --group dev
 
       - name: Run unit tests
-        working-directory: src
-        run: uv run --project .. pytest backend/tests/unit -v
+        run: uv run pytest tests/unit -v
 
   # ── Smoke tests (loads model, one input, checks output) — production only ──
   smoke-tests:
@@ -94,8 +93,7 @@ jobs:
         run: uv sync --locked --extra ml --group dev
 
       - name: Run smoke tests
-        working-directory: src
-        run: uv run --project .. pytest backend/tests/smoke -v
+        run: uv run pytest tests/smoke -v
 
   # ── Integration tests (API endpoints) — production only ────────────────────
   integration-tests:
@@ -140,8 +138,7 @@ jobs:
           done
 
       - name: Run integration tests
-        working-directory: src
-        run: uv run --project .. pytest backend/tests/integration -v
+        run: uv run pytest tests/integration -v
 
   # ── Security scanning ────────────────────────────────────────────────────
   security:
@@ -162,7 +159,7 @@ jobs:
         run: uv sync --locked --group dev
 
       - name: Bandit (static security lint)
-        run: uv run bandit -r src --severity-level medium -x src/frontend
+        run: uv run bandit -r src --severity-level medium
 
       - name: pip-audit (dependency vulnerabilities)
         uses: pypa/gh-action-pip-audit@v1.1.0
@@ -184,7 +181,7 @@ jobs:
         run: docker build -t vigilia:scan .
 
       - name: Trivy vulnerability scan
-        uses: aquasecurity/trivy-action@0.29.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: vigilia:scan
           severity: CRITICAL,HIGH
