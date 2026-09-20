@@ -168,10 +168,20 @@ jobs:
       - name: Ensure pip is present for the pip-audit action
         run: uv pip install pip
 
+      # pip-audit's `inputs` expects a pip requirements.txt-style file, but
+      # uv.lock is TOML — pointing it at uv.lock directly fails parsing on
+      # line 1 ("version = 1" isn't a valid requirement specifier). Exported
+      # WITHOUT --all-extras/--extra ml deliberately: this job never syncs
+      # the ml extra (torch's CPU build isn't on plain PyPI, so pip-audit's
+      # resolver can't find `torch==...+cpu` to install and audit it) — this
+      # audits exactly what this job's venv actually has installed.
+      - name: Export lockfile to requirements format
+        run: uv export --locked --no-hashes --group dev -o requirements-audit.txt
+
       - name: pip-audit (dependency vulnerabilities)
         uses: pypa/gh-action-pip-audit@v1.1.0
         with:
-          inputs: uv.lock
+          inputs: requirements-audit.txt
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3.27.9
