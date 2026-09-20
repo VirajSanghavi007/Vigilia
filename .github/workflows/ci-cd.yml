@@ -237,28 +237,6 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # TEMPORARY diagnostic — two prior fix attempts (torch/torch_geometric
-      # version bump, then forcing uv onto the base image's system Python
-      # instead of a managed download) both left the exact same msgpack
-      # 1.1.2 / setuptools 70.3.0 findings unchanged, which means neither
-      # guess was the actual source. The table-format Trivy step below
-      # doesn't report a file path per finding, so get JSON output with
-      # PkgPath instead of guessing again. Remove once the real source is
-      # identified and fixed.
-      - name: Diagnose Trivy finding locations
-        run: |
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
-            aquasecurity/trivy:0.70.0 image --format json --severity HIGH,CRITICAL \
-            --scanners vuln vigilia:${{ github.sha }} > /tmp/trivy-diag.json
-          python3 -c "
-          import json
-          d = json.load(open('/tmp/trivy-diag.json'))
-          for r in d.get('Results') or []:
-              for v in r.get('Vulnerabilities') or []:
-                  if v['PkgName'] in ('msgpack', 'setuptools'):
-                      print(r.get('Target'), '|', v['PkgName'], v.get('InstalledVersion'), '|', v.get('PkgPath'))
-          "
-
       - name: Trivy vulnerability scan
         uses: aquasecurity/trivy-action@v0.36.0
         with:
