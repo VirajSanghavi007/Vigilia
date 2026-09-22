@@ -85,11 +85,15 @@ Memgraph's own published benchmark almost exactly (see Sources).
 The 203,769-node sweep above finished too fast (under 2s) to separate
 real shard-count effects from noise. Retested against a synthetic
 15,000,000-node / 17,251,512-edge dataset — same column format as the
-real dataset, generated via `scripts/synthetic/generate_bulk_dataset.py`
-using genuine multiprocessing (24 worker processes, ~1.49M nodes/sec
-generated, 10.1s total; see that script's docstring for why Pool over
-threads/vectorized-only). Tested 8/12/16/20/24 shards, each on a
-freshly wiped instance:
+real dataset, generated using genuine multiprocessing (24 worker
+processes, ~1.49M nodes/sec generated, 10.1s total; each worker wrote
+an independent chunk — no shared state, no cross-worker coordination,
+so `ProcessPoolExecutor` was the correct regime for this CPU-bound
+work, not threads). The generator script and its 15M-row output were
+one-off tooling for this specific test and have been removed after
+capturing the findings below (recoverable from git history at commit
+`c83e32a` if ever needed again) — this file is the durable record.
+Tested 8/12/16/20/24 shards, each on a freshly wiped instance:
 
 | Shards | Nodes phase | Edges phase | **Load time (nodes+edges)** | Total wall time* |
 |---|---|---|---|---|
@@ -241,10 +245,6 @@ idempotency).
   finalize (constraint creation) is the dominant, largely
   shard-count-independent cost at large scale (see the 15M-node sweep
   above), so don't judge shard-count performance from total wall time.
-- `scripts/synthetic/generate_bulk_dataset.py` — generates a large
-  synthetic dataset in the real dataset's exact flat-CSV format via
-  genuine multiprocessing (`--n-nodes`, `--workers`, `--out-dir`), for
-  feeding into `benchmark_loadcsv.py --source-dir`.
 
 ## Sources (Memgraph official documentation, unless noted)
 
