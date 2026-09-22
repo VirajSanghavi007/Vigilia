@@ -1,6 +1,9 @@
 services:
   memgraph:
-    image: memgraph/memgraph:2.22.0
+    # memgraph-mage (not plain memgraph) bundles the MAGE algorithm
+    # library — Memgraph Lab's GraphChat (natural-language-to-Cypher)
+    # requires it to be present, otherwise it refuses to start querying.
+    image: memgraph/memgraph-mage:latest
     ports:
       - "7687:7687"  # bolt — driver connections
       - "7444:7444"  # memgraph logging/monitoring endpoint
