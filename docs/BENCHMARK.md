@@ -246,6 +246,50 @@ idempotency).
   shard-count-independent cost at large scale (see the 15M-node sweep
   above), so don't judge shard-count performance from total wall time.
 
+## Live-ingestion (streaming) endpoint
+
+Bulk-load benchmarking above covers one-time historical backfills. Live
+ingestion is a different workload — a continuous stream of individually
+arriving transactions, not a bulk file — so a new endpoint,
+`src/vigilia/api/v1/routers/ingest.py`, serves this instead:
+`POST /v1/ingest/transaction` and `POST /v1/ingest/edge`, one row per
+request, `MERGE` + `IN_MEMORY_TRANSACTIONAL` (no analytical-mode switch
+— that would break concurrent reads/writes this endpoint needs to
+coexist with).
+
+`scripts/generate_synthetic_stream.py --sink api` posts to this endpoint
+instead of writing to Memgraph directly (`--sink memgraph`), benchmarking
+the endpoint's real added overhead (HTTP + FastAPI + Pydantic validation)
+on top of the same underlying `GraphStore` writes.
+
+**First real result** (15s run, Poisson-process arrival rate): even the
+**lowest tested target rate (87.2 rows/s) already fell behind** — 164
+rows took 4.24s to send (should have taken 1.81s at that rate). At a
+higher drawn rate (2,609.8 rows/s), 5,778 rows took 73.73s against a
+2.28s budget. Every row sent did land correctly (5,942 sent, 5,942
+present in Memgraph afterward — no data loss under load, just latency),
+but throughput is dramatically lower than direct-driver writes, as
+expected: each row pays a full HTTP round-trip + Pydantic validation
+individually, with no batching at all. This is the real floor/ceiling
+question the generator was built to answer (see its docstring) — this
+first run found the ceiling is very low for the naive one-request-per-row
+design; a real throughput number (requests/sec the endpoint can sustain)
+needs a longer, steadier-rate run, not yet done.
+
+**Not yet benchmarked / open questions for next time:**
+- Sustained-rate ceiling: run at a few fixed (not Poisson-drifting) rates
+  long enough to find the actual sustainable requests/sec, rather than
+  reading it off a single short drifting-rate run.
+- Whether batching (e.g. an endpoint accepting N transactions per
+  request) meaningfully closes the gap to direct-driver throughput, vs.
+  the one-row-per-request design being kept for realism (a real
+  upstream system sending individual events, not pre-batched).
+- FastAPI/uvicorn worker count — this was tested against a single
+  `uvicorn` process (`--workers` not set); concurrent workers might
+  raise the ceiling substantially, same open question as Memgraph's own
+  bulk-load concurrency (see shard-count findings above) — don't assume
+  it helps without testing, per the same lesson learned there.
+
 ## Sources (Memgraph official documentation, unless noted)
 
 - [Import best practices](https://memgraph.com/docs/data-migration/best-practices) — batch size guidance (10K–100K elements), pre-import indexing

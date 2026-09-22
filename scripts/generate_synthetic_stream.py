@@ -24,9 +24,12 @@ Two things a naive synthetic generator gets wrong, both fixed here:
    repeating menu.
 
 Each event is written one at a time through GraphStore.upsert_transaction
-/upsert_edge, matching how a live-ingestion API endpoint will call this
-same interface per incoming transaction later (roadmap step 3) — the
-Sink abstraction below is the seam that endpoint will plug into.
+/upsert_edge, matching how the live-ingestion API endpoint
+(src/vigilia/api/v1/routers/ingest.py) calls this same interface per
+incoming transaction — the Sink abstraction below is the seam that
+endpoint plugs into (see ApiSink). --sink memgraph writes to Memgraph
+directly, --sink api goes through the real HTTP endpoint instead, to
+benchmark the endpoint's own added overhead on top of the same writes.
 
 Requires scripts/synthetic/fit_feature_model.py to have been run once
 (caches data/syndata/feature_model.npz — regenerate any time from the
@@ -46,6 +49,7 @@ from collections import deque
 from pathlib import Path
 from typing import Protocol
 
+import httpx
 import numpy as np
 
 from vigilia.domain.graph.store import TxClass
@@ -138,17 +142,33 @@ class MemgraphSink:
 
 
 class ApiSink:
-    """Placeholder for the live-ingestion API endpoint (roadmap step 3).
-
-    Once that endpoint exists, this becomes an HTTP client posting one
-    transaction event per call — same Sink shape, no caller change needed.
-    """
+    """Posts to the live-ingestion API endpoint (src/vigilia/api/v1/routers/ingest.py)
+    instead of writing to Memgraph directly — same Sink shape as MemgraphSink, so this
+    benchmarks the endpoint's real overhead (HTTP + FastAPI + Pydantic validation on
+    top of the same underlying GraphStore.upsert_transaction/upsert_edge calls)."""
 
     def __init__(self, base_url: str) -> None:
-        raise NotImplementedError(
-            "Live-ingestion API endpoint doesn't exist yet (roadmap step 3). "
-            "Use --sink memgraph until it's built."
+        self._base_url = base_url.rstrip("/")
+        self._client = httpx.Client(timeout=10.0)
+
+    def upsert_transaction(
+        self, tx_id: str, tx_class: TxClass, properties: dict[str, float] | None = None
+    ) -> None:
+        resp = self._client.post(
+            f"{self._base_url}/v1/ingest/transaction",
+            json={"tx_id": tx_id, "tx_class": tx_class, "properties": properties},
         )
+        resp.raise_for_status()
+
+    def upsert_edge(self, from_id: str, to_id: str) -> None:
+        resp = self._client.post(
+            f"{self._base_url}/v1/ingest/edge",
+            json={"from_id": from_id, "to_id": to_id},
+        )
+        resp.raise_for_status()
+
+    def close(self) -> None:
+        self._client.close()
 
 
 def random_class() -> TxClass:

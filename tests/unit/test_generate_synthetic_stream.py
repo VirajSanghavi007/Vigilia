@@ -133,9 +133,82 @@ def test_generate_batch_ids_are_unique_across_calls(mod, fake_model):
     assert len(sink.nodes) == 40
 
 
-def test_api_sink_not_implemented_yet(mod):
-    with pytest.raises(NotImplementedError, match="doesn't exist yet"):
-        mod.ApiSink("http://localhost:8000")
+def test_api_sink_posts_transaction_to_correct_endpoint(mod, monkeypatch):
+    calls = []
+
+    class FakeResponse:
+        def raise_for_status(self):
+            pass
+
+    class FakeClient:
+        def __init__(self, timeout=None):
+            pass
+
+        def post(self, url, json):
+            calls.append((url, json))
+            return FakeResponse()
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(mod.httpx, "Client", FakeClient)
+    sink = mod.ApiSink("http://localhost:8000")
+    sink.upsert_transaction("T1", "illicit", {"f0": 1.0})
+
+    assert calls == [
+        (
+            "http://localhost:8000/v1/ingest/transaction",
+            {"tx_id": "T1", "tx_class": "illicit", "properties": {"f0": 1.0}},
+        )
+    ]
+
+
+def test_api_sink_posts_edge_to_correct_endpoint(mod, monkeypatch):
+    calls = []
+
+    class FakeResponse:
+        def raise_for_status(self):
+            pass
+
+    class FakeClient:
+        def __init__(self, timeout=None):
+            pass
+
+        def post(self, url, json):
+            calls.append((url, json))
+            return FakeResponse()
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(mod.httpx, "Client", FakeClient)
+    sink = mod.ApiSink("http://localhost:8000")
+    sink.upsert_edge("T1", "T2")
+
+    assert calls == [
+        ("http://localhost:8000/v1/ingest/edge", {"from_id": "T1", "to_id": "T2"})
+    ]
+
+
+def test_api_sink_strips_trailing_slash_from_base_url(mod, monkeypatch):
+    class FakeResponse:
+        def raise_for_status(self):
+            pass
+
+    class FakeClient:
+        def __init__(self, timeout=None):
+            pass
+
+        def post(self, url, json):
+            assert url == "http://localhost:8000/v1/ingest/transaction"
+            return FakeResponse()
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(mod.httpx, "Client", FakeClient)
+    sink = mod.ApiSink("http://localhost:8000/")
+    sink.upsert_transaction("T1", "unknown")
 
 
 def test_rate_walker_stays_within_bounds(mod):

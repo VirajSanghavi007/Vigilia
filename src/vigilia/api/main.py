@@ -11,11 +11,13 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
+from vigilia.api.v1.routers.ingest import router as ingest_router
 from vigilia.shared.logging import get_logger
 
 logger = get_logger(__name__)
 
 app = FastAPI(title="Vigilia")
+app.include_router(ingest_router)
 
 
 @app.get("/health")
