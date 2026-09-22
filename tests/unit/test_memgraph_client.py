@@ -70,6 +70,41 @@ def test_upsert_edge_merges_both_nodes_and_relationship(store):
     assert kwargs == {"from_id": "T1", "to_id": "T2"}
 
 
+def test_upsert_transactions_batch_sends_one_unwind_query(store):
+    s, mock_driver = store
+    s.upsert_transactions_batch(
+        [
+            {"tx_id": "T1", "tx_class": "illicit", "properties": None},
+            {"tx_id": "T2", "tx_class": "licit", "properties": {"f0": 1.0}},
+        ]
+    )
+
+    run = _session_run_mock(mock_driver)
+    run.assert_called_once()
+    (query,), kwargs = run.call_args
+    assert "UNWIND" in query
+    assert "MERGE" in query
+    assert kwargs == {
+        "rows": [
+            {"tx_id": "T1", "tx_class": "illicit", "properties": {}},
+            {"tx_id": "T2", "tx_class": "licit", "properties": {"f0": 1.0}},
+        ]
+    }
+
+
+def test_upsert_edges_batch_sends_one_unwind_query(store):
+    s, mock_driver = store
+    rows = [{"from_id": "T1", "to_id": "T2"}, {"from_id": "T2", "to_id": "T3"}]
+    s.upsert_edges_batch(rows)
+
+    run = _session_run_mock(mock_driver)
+    run.assert_called_once()
+    (query,), kwargs = run.call_args
+    assert "UNWIND" in query
+    assert "SENT_TO" in query
+    assert kwargs == {"rows": rows}
+
+
 def test_get_neighbors_returns_txids_from_result(store):
     s, mock_driver = store
     mock_session = mock_driver.session.return_value.__enter__.return_value

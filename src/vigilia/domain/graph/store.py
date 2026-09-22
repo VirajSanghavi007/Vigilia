@@ -25,6 +25,19 @@ class GraphStore(Protocol):
         """Create a directed SENT_TO edge between two transactions if absent."""
         ...
 
+    def upsert_transactions_batch(self, rows: list[dict]) -> None:
+        """Batched upsert_transaction — one UNWIND/MERGE query for N rows.
+
+        Each row: {"tx_id": str, "tx_class": TxClass, "properties": dict | None}.
+        For high-throughput ingestion where N events can be accepted in one
+        request instead of N separate round trips.
+        """
+        ...
+
+    def upsert_edges_batch(self, rows: list[dict]) -> None:
+        """Batched upsert_edge. Each row: {"from_id": str, "to_id": str}."""
+        ...
+
     def get_neighbors(self, tx_id: str) -> list[str]:
         """Return txIds directly connected to tx_id (either direction)."""
         ...

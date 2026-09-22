@@ -45,6 +45,29 @@ class MemgraphStore:
                 to_id=to_id,
             )
 
+    def upsert_transactions_batch(self, rows: list[dict]) -> None:
+        with self._driver.session() as session:
+            session.run(
+                """
+                UNWIND $rows AS row
+                MERGE (t:Transaction {txId: row.tx_id})
+                SET t.class = row.tx_class, t += row.properties
+                """,
+                rows=[{**r, "properties": r.get("properties") or {}} for r in rows],
+            )
+
+    def upsert_edges_batch(self, rows: list[dict]) -> None:
+        with self._driver.session() as session:
+            session.run(
+                """
+                UNWIND $rows AS row
+                MERGE (a:Transaction {txId: row.from_id})
+                MERGE (b:Transaction {txId: row.to_id})
+                MERGE (a)-[:SENT_TO]->(b)
+                """,
+                rows=rows,
+            )
+
     def get_neighbors(self, tx_id: str) -> list[str]:
         with self._driver.session() as session:
             result = session.run(

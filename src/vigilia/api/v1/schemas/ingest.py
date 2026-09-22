@@ -16,3 +16,11 @@ class TransactionIn(BaseModel):
 class EdgeIn(BaseModel):
     from_id: str
     to_id: str
+
+
+class TransactionBatchIn(BaseModel):
+    transactions: list[TransactionIn]
+
+
+class EdgeBatchIn(BaseModel):
+    edges: list[EdgeIn]

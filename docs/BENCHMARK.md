@@ -276,19 +276,86 @@ first run found the ceiling is very low for the naive one-request-per-row
 design; a real throughput number (requests/sec the endpoint can sustain)
 needs a longer, steadier-rate run, not yet done.
 
+### Sustained-rate + batching, measured (`scripts/benchmark_ingest_endpoint.py`)
+
+Sent 2,000 rows through the endpoint at a fixed rate (not Poisson-drifting
+this time, to isolate the batching variable), single Python `httpx.Client`,
+comparing `POST /v1/ingest/transaction` (batch size 1) against
+`POST /v1/ingest/transaction/batch` at a few batch sizes:
+
+| Batch size | Time | Throughput |
+|---|---|---|
+| 1 (single-row) | 9.37s | 213.4 rows/s |
+| **10** | **2.41s** | **830.5 rows/s** |
+| 50 | 2.63s | 761.4 rows/s |
+| 200 | 3.53s | 567.3 rows/s |
+
+**Batching helps substantially (~3.9x at the best size), but nowhere near
+the ~900x a community Neo4j benchmark found for single-row vs.
+`UNWIND`-batched `MERGE`** (cited in the research below) — and batch
+size 10 is a **sweet spot, not "bigger is better"**: 50 and 200 are both
+*worse* than 10, the same non-monotonic pattern found in the bulk-load
+shard-count sweep. Likely cause (not yet confirmed): larger single
+`UNWIND` transactions in `IN_MEMORY_TRANSACTIONAL` mode pay more
+MVCC/WAL overhead per transaction as the transaction gets bigger, so
+past some point a bigger batch trades round-trip savings for
+per-transaction cost — consistent with the same mode's behavior
+documented in the bulk-load findings above, but not root-caused the way
+the earlier findings were (no direct evidence yet, just a plausible
+mechanism). All 8,000 rows across the 4 test runs landed correctly (no
+data loss at any batch size) — this is purely a throughput question, not
+a correctness one.
+
 **Not yet benchmarked / open questions for next time:**
-- Sustained-rate ceiling: run at a few fixed (not Poisson-drifting) rates
-  long enough to find the actual sustainable requests/sec, rather than
-  reading it off a single short drifting-rate run.
-- Whether batching (e.g. an endpoint accepting N transactions per
-  request) meaningfully closes the gap to direct-driver throughput, vs.
-  the one-row-per-request design being kept for realism (a real
-  upstream system sending individual events, not pre-batched).
+- Root-cause why the batch-size curve peaks at ~10 rather than climbing
+  further (transaction size overhead is a hypothesis, not confirmed —
+  worth checking Memgraph's own transaction metrics during a large-batch
+  run, or bisecting between 10 and 50 to find exactly where it turns).
 - FastAPI/uvicorn worker count — this was tested against a single
   `uvicorn` process (`--workers` not set); concurrent workers might
   raise the ceiling substantially, same open question as Memgraph's own
   bulk-load concurrency (see shard-count findings above) — don't assume
   it helps without testing, per the same lesson learned there.
+- A genuinely sustained (multi-minute, not 2,000-row) run at the
+  batch-size-10 sweet spot, to confirm 830 rows/s holds rather than
+  degrading over time the way the bulk sequential-UNWIND run did.
+
+### Message queue (Kafka/Redpanda) research — should one sit in front of this endpoint?
+
+Researched whether a queue is warranted, given the concern that data
+could be lost or fall further behind if ingestion can't keep pace.
+Findings (see Sources for full citations):
+
+- **Memgraph has native Kafka/Pulsar/Redpanda streaming ingestion**
+  (`CREATE KAFKA STREAM ... TRANSFORM ... BOOTSTRAP_SERVERS ...`),
+  available in Community edition — not Enterprise-gated. It batches
+  internally (`BATCH_SIZE` default 1000, `BATCH_INTERVAL` default
+  100ms) but **stays in `IN_MEMORY_TRANSACTIONAL` mode**, so it gets
+  Kafka-side batching but not `LOAD CSV`'s analytical-mode speedup.
+  Delivery is at-least-once (Memgraph write commits before the Kafka
+  offset does), so duplicates are possible — `MERGE`-based upsert
+  semantics (already how this endpoint works) handle that correctly
+  regardless of which ingestion path is used.
+- **A queue's real value here is durability and replay, not raw
+  throughput** — this is the consistent pattern across Memgraph's own
+  docs and Neo4j's Kafka Connector/CDC material (Neo4j's connector also
+  batches via `MERGE`, not per-message transactions) and a real AWS
+  reference architecture for graph-based fraud-ring detection: Kafka
+  sits upstream of the graph DB specifically so events survive a
+  DB restart or a slow consumer, and to give an audit trail independent
+  of the DB — appropriate for an AML system's regulatory requirements.
+  Throughput is what batching fixes, not what the queue fixes.
+- **Recommendation, in order**: (1) batching the endpoint we already
+  control (done above — real, if smaller-than-hoped, improvement, and
+  keeps this project's Pydantic validation/domain logic intact, unlike
+  pushing transform logic into a Memgraph-loaded Python module); (2) add
+  a queue later, once closer to production, specifically for durability
+  and audit trail, feeding our own batched consumer rather than
+  Memgraph's native stream; (3) deprioritize Memgraph's native
+  `CREATE STREAM` for now — moving validation/business logic into an
+  infra-adjacent Memgraph module cuts against this project's layered
+  architecture, and isn't clearly a throughput win over our own batched
+  endpoint anyway.
 
 ## Sources (Memgraph official documentation, unless noted)
 
@@ -301,3 +368,10 @@ needs a longer, steadier-rate run, not yet done.
 - [Storage access](https://memgraph.com/docs/fundamentals/storage-access)
 - [Indexes](https://memgraph.com/docs/fundamentals/indexes)
 - [GitHub issue #2226](https://github.com/memgraph/memgraph/issues/2226) — historical (fixed) unrelated-index MERGE regression, noted for awareness
+- [Memgraph streams overview](https://memgraph.com/docs/data-streams) / [Manage streams via queries](https://memgraph.com/docs/memgraph/how-to-guides/streams/manage-streams) — native Kafka/Pulsar/Redpanda streaming ingestion, `BATCH_SIZE`/`BATCH_INTERVAL`, at-least-once delivery semantics
+- [Graph stream processing with Kafka](https://memgraph.com/docs/data-streams/graph-stream-processing-with-kafka), [Kafka Connect docs](https://memgraph.com/docs/data-streams/kafka)
+- [Enabling Memgraph Enterprise](https://memgraph.com/docs/database-management/enabling-memgraph-enterprise) — confirms streaming is Community-edition, Enterprise adds auth/RBAC/HA only
+- [Neo4j CDC GA announcement](https://neo4j.com/blog/developer/change-data-capture-cdc-ga/), [Neo4j Kafka Connector CDC sink](https://neo4j.com/docs/kafka/current/sink/cdc/), [Confluent's Neo4j sink plugin writeup](https://www.confluent.io/blog/kafka-connect-neo4j-sink-plugin/) — comparable vendor pattern (queue upstream of the graph DB for durability/replay, connector batches via MERGE)
+- [AWS reference architecture — fraud-ring detection using Neo4j and graphs](https://docs.aws.amazon.com/reference-architecture-diagrams/latest/fraud-ring-detection-using-Neo4j-and-graphs/fraud-ring-detection-using-Neo4j-and-graphs.html) — real production pattern for a comparable (fraud/AML) domain
+- [Michael Hunger — 5 Tips & Tricks for Fast Batched Updates](https://medium.com/neo4j/5-tips-tricks-for-fast-batched-updates-of-graph-structures-with-neo4j-and-cypher-73c7f693c8cc) — general Cypher batching guidance (community, not Memgraph-official)
+- [Alex Chantavy — loading 7M items with/without UNWIND](https://achantavy.github.io/cartography/performance/cypher/neo4j/2020/07/19/loading-7m-items-to-neo4j-with-and-without-unwind.html) — the ~900x single-row-vs-batched reference number (Neo4j, community benchmark, not Memgraph — our own measured multiplier was ~3.9x, notably smaller)
