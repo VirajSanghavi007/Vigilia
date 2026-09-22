@@ -61,9 +61,9 @@ Adding a dependency: edit `pyproject.toml` (`dependencies`, `project.optional-de
 
 ## CI/CD (`.github/workflows/ci-cd.yml`)
 
-Two branches: `development` (default, where work happens) and `production`. On every push: lint + unit tests (both branches, both OS in the matrix — ubuntu-22.04 and windows-2022) and security scanning (bandit, pip-audit, CodeQL, Trivy). Smoke tests, integration tests, Docker build, and the deploy gate run **production-only**. `deploy` requires manual approval on the GitHub `production` environment — it has no real deploy target wired in yet (placeholder step).
+Two branches: `development` (default, where work happens) and `production`. Runners are **Ubuntu-only** (`ubuntu-22.04`) — Windows was dropped from CI: no Docker daemon there meant DB-backed integration tests, Docker builds, and Memgraph all had to special-case or skip on it, for no benefit given development also happens on Windows locally. On every push: lint + unit tests (both branches) and security scanning (bandit, pip-audit, CodeQL, Trivy). Smoke tests, integration tests, Docker build, and the deploy gate run **production-only**. `deploy` requires manual approval on the GitHub `production` environment — it has no real deploy target wired in yet (placeholder step).
 
-Windows CI runners have no Docker daemon, so integration tests only get a real Postgres container on Linux; on Windows, DB-backed tests must skip themselves (via a `pg_available`-style fixture) rather than fail against a dead connection — preserve that pattern when integration tests are rebuilt.
+Integration tests get real Postgres and Memgraph containers (`docker run`, started as CI steps) since CI is always Linux now — no OS-conditional skipping needed. Locally, integration tests that need a real service should fail loudly with an actionable message when that service isn't reachable (e.g. "run `docker compose up -d memgraph`"), not skip silently — a skip would let the suite report "passed" without exercising real behavior. See `tests/integration/test_memgraph_integration.py` for the pattern.
 
 ## Hard rule: no unreviewed code changes
 

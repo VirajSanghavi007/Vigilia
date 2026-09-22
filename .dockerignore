@@ -1,34 +1,12 @@
-# Keep the image tiny — exclude everything heavy.
-# Datasets (4.8GB of CSVs) — NOT needed; app serves from data/pipeline_cache.json
-**/*.csv
-data/TransXion/
-data/Elliptic/
-data/EllipticPlusPlus/
-data/archive/
-data/IBM/
-data/SAML-D/
-
-# Local-only junk
-venv/
-wheels/
-node_modules/
-.git/
-.github/
-.claude/
-__pycache__/
-**/__pycache__/
+.git
+.github
+.venv
+.pytest_cache
+.ruff_cache
+__pycache__
 *.pyc
-logs/
-*.pptx
-*.log
-
-# Local-only tooling — never touched by the running server (Dockerfile's CMD
-# calls uvicorn directly). Training happens offline; only the resulting
-# model/cache files below are needed in the image.
-scripts/
-train_multignn.ipynb
-HACKATHON_STRATEGY.txt
-src/backend/tests/
-
-# IMPORTANT: do NOT exclude these — the demo needs them:
-#   data/pipeline_cache.json  data/multignn_model.pt  data/multignn_meta.json
+data
+docs
+tests
+.claude
+docker-compose.yml

@@ -15,6 +15,7 @@ dependencies = [
     "openpyxl",
     "psycopg2-binary",
     "argon2-cffi",
+    "neo4j==5.28.1",
 ]
 
 [project.optional-dependencies]

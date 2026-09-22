@@ -18,11 +18,7 @@ jobs:
   # ── Lint ──────────────────────────────────────────────────────────────────
   lint:
     name: Lint (ruff)
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-22.04, windows-2022]
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4.2.2
 
@@ -43,11 +39,7 @@ jobs:
   # ── Unit tests (fast, no torch) — both branches ─────────────────────────────
   unit-tests:
     name: Unit tests
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-22.04, windows-2022]
+    runs-on: ubuntu-22.04
     env:
       DATABASE_URL: "postgresql://placeholder:placeholder@localhost:5432/placeholder"
     steps:
@@ -71,11 +63,7 @@ jobs:
   smoke-tests:
     name: Smoke tests
     if: github.ref == 'refs/heads/production'
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-22.04, windows-2022]
+    runs-on: ubuntu-22.04
     env:
       DATABASE_URL: "postgresql://placeholder:placeholder@localhost:5432/placeholder"
     steps:
@@ -99,11 +87,7 @@ jobs:
   integration-tests:
     name: Integration tests
     if: github.ref == 'refs/heads/production'
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-22.04, windows-2022]
+    runs-on: ubuntu-22.04
     env:
       DATABASE_URL: "postgresql://placeholder:placeholder@localhost:5432/placeholder"
     steps:
@@ -120,20 +104,21 @@ jobs:
       - name: Sync deps (core + dev, locked)
         run: uv sync --locked --group dev
 
-      # GitHub-hosted service containers (the `services:` job key) only work on
-      # Linux runners — Windows/macOS runners have no Docker daemon available
-      # to the job. So on Linux we spin up a real Postgres here and point
-      # DATABASE_URL at it; on Windows there's deliberately no DB, and the
-      # DB-backed tests skip themselves via the `pg_available` fixture in
-      # conftest.py rather than failing against a dead connection.
-      - name: Start Postgres (Linux only)
-        if: runner.os == 'Linux'
+      - name: Start Postgres
         run: |
           docker run -d --name pg-test \
             -e POSTGRES_USER=placeholder -e POSTGRES_PASSWORD=placeholder -e POSTGRES_DB=placeholder \
             -p 5432:5432 postgres:16
           for i in $(seq 1 30); do
             docker exec pg-test pg_isready -U placeholder && break
+            sleep 1
+          done
+
+      - name: Start Memgraph
+        run: |
+          docker run -d --name memgraph-test -p 7687:7687 memgraph/memgraph:2.22.0
+          for i in $(seq 1 30); do
+            docker exec memgraph-test bash -c "echo 'RETURN 1;' | mgconsole" && break
             sleep 1
           done
 
