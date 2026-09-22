@@ -10,8 +10,15 @@ TxClass = Literal["illicit", "licit", "unknown"]
 
 
 class GraphStore(Protocol):
-    def upsert_transaction(self, tx_id: str, tx_class: TxClass) -> None:
-        """Create the transaction node if absent, or update its class if present."""
+    def upsert_transaction(
+        self, tx_id: str, tx_class: TxClass, properties: dict[str, float] | None = None
+    ) -> None:
+        """Create the transaction node if absent, or update its class if present.
+
+        `properties` are extra scalar node properties (e.g. feature-vector
+        components) merged onto the node alongside class. Optional — callers
+        that only need txId+class (the real-data loader) pass nothing.
+        """
         ...
 
     def upsert_edge(self, from_id: str, to_id: str) -> None:

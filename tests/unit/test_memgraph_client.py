@@ -46,7 +46,16 @@ def test_upsert_transaction_merges_with_class(store):
     (query,), kwargs = run.call_args
     assert "MERGE" in query
     assert "Transaction" in query
-    assert kwargs == {"tx_id": "T1", "tx_class": "illicit"}
+    assert kwargs == {"tx_id": "T1", "tx_class": "illicit", "properties": {}}
+
+
+def test_upsert_transaction_passes_through_extra_properties(store):
+    s, mock_driver = store
+    s.upsert_transaction("T1", "licit", properties={"f0": 1.5, "f1": -2.0})
+
+    run = _session_run_mock(mock_driver)
+    (_,), kwargs = run.call_args
+    assert kwargs == {"tx_id": "T1", "tx_class": "licit", "properties": {"f0": 1.5, "f1": -2.0}}
 
 
 def test_upsert_edge_merges_both_nodes_and_relationship(store):

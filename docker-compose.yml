@@ -9,6 +9,12 @@ services:
       - "7444:7444"  # memgraph logging/monitoring endpoint
     volumes:
       - memgraph_data:/var/lib/memgraph
+      # Sharded CSVs for LOAD CSV-based bulk-load benchmarking — Memgraph's
+      # own fastest documented ingestion path reads files server-side, so
+      # the shards need to exist inside the container's filesystem, not
+      # just be reachable from the Python client. Read-only: this script
+      # only ever reads shards here, host-side scripts write them.
+      - ./data/syndata/csv_shards:/csv_shards:ro
 
   memgraph-lab:
     image: memgraph/lab:2.16.0

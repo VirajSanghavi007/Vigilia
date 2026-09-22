@@ -22,12 +22,15 @@ class MemgraphStore:
                 "CREATE CONSTRAINT ON (t:Transaction) ASSERT t.txId IS UNIQUE"
             )
 
-    def upsert_transaction(self, tx_id: str, tx_class: TxClass) -> None:
+    def upsert_transaction(
+        self, tx_id: str, tx_class: TxClass, properties: dict[str, float] | None = None
+    ) -> None:
         with self._driver.session() as session:
             session.run(
-                "MERGE (t:Transaction {txId: $tx_id}) SET t.class = $tx_class",
+                "MERGE (t:Transaction {txId: $tx_id}) SET t.class = $tx_class, t += $properties",
                 tx_id=tx_id,
                 tx_class=tx_class,
+                properties=properties or {},
             )
 
     def upsert_edge(self, from_id: str, to_id: str) -> None:
