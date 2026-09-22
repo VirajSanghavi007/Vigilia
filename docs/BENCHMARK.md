@@ -306,19 +306,178 @@ mechanism). All 8,000 rows across the 4 test runs landed correctly (no
 data loss at any batch size) — this is purely a throughput question, not
 a correctness one.
 
-**Not yet benchmarked / open questions for next time:**
-- Root-cause why the batch-size curve peaks at ~10 rather than climbing
-  further (transaction size overhead is a hypothesis, not confirmed —
-  worth checking Memgraph's own transaction metrics during a large-batch
-  run, or bisecting between 10 and 50 to find exactly where it turns).
-- FastAPI/uvicorn worker count — this was tested against a single
-  `uvicorn` process (`--workers` not set); concurrent workers might
-  raise the ceiling substantially, same open question as Memgraph's own
-  bulk-load concurrency (see shard-count findings above) — don't assume
-  it helps without testing, per the same lesson learned there.
-- A genuinely sustained (multi-minute, not 2,000-row) run at the
-  batch-size-10 sweet spot, to confirm 830 rows/s holds rather than
-  degrading over time the way the bulk sequential-UNWIND run did.
+### Batch-size bisection, concurrency sweep, and sustained run (`scripts/benchmark_ingest_endpoint.py`)
+
+Follow-up run closing the three open questions above: a finer batch-size
+sweep around the batch=10 peak, a concurrency sweep (multiple HTTP
+requests in flight via `ThreadPoolExecutor`, at the winning batch size),
+and a 180s sustained run at the winning `(batch_size, concurrency)`.
+Single `uvicorn` process throughout (`--workers` not set — still an open
+question, see below).
+
+**Phase 1 — batch-size bisection** (2,000 rows/run, single-threaded):
+
+| Batch size | Time | Throughput |
+|---|---|---|
+| 5 | 3.96s | 505.7 rows/s |
+| **8** | **2.41s** | **831.0 rows/s** |
+| 10 | 3.21s | 623.1 rows/s |
+| 12 | 4.04s | 495.2 rows/s |
+| 15 | 4.88s | 409.8 rows/s |
+| 20 | 5.74s | 348.6 rows/s |
+| 30 | 6.49s | 308.4 rows/s |
+
+Confirms the non-monotonic peak, but narrows it to **8**, not 10 — the
+first run's 10 (830.5 rows/s) and this run's 8 (831.0 rows/s) are
+statistically indistinguishable single-sample measurements, and this
+run's own batch=10 point (623.1 rows/s) is noticeably worse than its
+neighbors, which the earlier run didn't show either. Read this as "the
+sweet spot is a narrow batch size in the 8–10 range, exact optimum not
+resolvable from single-sample runs, more likely dominated by noise near
+the peak than by a precise underlying optimum" rather than "8 is
+definitively better than 10."
+
+**Phase 2 — concurrency sweep** (batch_size=8, 3,000 rows/run,
+`ThreadPoolExecutor` + `httpx.Client(limits=...)`):
+
+| Concurrency | Time | Throughput | Errors |
+|---|---|---|---|
+| 1 | 14.59s | 205.6 rows/s | 0 |
+| 2 | 9.55s | 314.0 rows/s | 0 |
+| 4 | 6.33s | 474.1 rows/s | 0 |
+| 8 | 4.80s | 625.5 rows/s | 0 |
+| **16** | **4.26s** | **704.0 rows/s** | 0 |
+
+Concurrency **does help**, monotonically, up to 16 (the highest level
+tested), with **zero `TransientError`s at any level** — the write
+contention feared from the driver-level bulk-load benchmarks (`Cannot
+get read-only/shared access to storage`) did not materialize here. Likely
+explanation: each HTTP request's batch is a separate short transaction
+serviced by FastAPI's own concurrency, so the actual write pattern looks
+more like many small sequential transactions than truly overlapping
+writes to the same rows — this wasn't isolated directly, so treat it as
+plausible, not proven. 16 wasn't a ceiling, just the highest level
+tested; higher concurrency is now the same kind of open question the
+batch-size sweep started as.
+
+**Phase 3 — sustained run** (batch_size=8, concurrency=16, 180s):
+
+| Elapsed | Rows sent | Window rate | Cumulative rate | Errors |
+|---|---|---|---|---|
+| 15.0s | 11,488 | 765.1 rows/s | 765.1 rows/s | 0 |
+| 30.0s | 21,976 | 698.4 rows/s | 731.7 rows/s | 0 |
+| 45.1s | 30,664 | 578.1 rows/s | 680.5 rows/s | 0 |
+| 60.1s | 38,408 | 515.0 rows/s | 639.1 rows/s | 0 |
+| 75.1s | 45,768 | 490.6 rows/s | 609.4 rows/s | 0 |
+| 90.1s | 52,456 | 445.8 rows/s | 582.2 rows/s | 0 |
+| 105.1s | 58,656 | 413.2 rows/s | 558.0 rows/s | 0 |
+| 120.2s | 64,544 | 391.4 rows/s | 537.2 rows/s | 0 |
+| 135.2s | 69,984 | 361.5 rows/s | 517.6 rows/s | 0 |
+| 150.2s | 75,192 | 346.3 rows/s | 500.5 rows/s | 0 |
+| 165.3s | 80,192 | 332.3 rows/s | 485.2 rows/s | 0 |
+
+**Total: 84,880 rows in 180.2s = 470.9 rows/s average, 0 errors.**
+
+This answers the third open question decisively, and not in the
+optimistic direction: throughput **does not hold** — the windowed rate
+falls steadily from 765 rows/s to 332 rows/s (a ~57% decline) over three
+minutes, with no sign of leveling off by the end of the run. This is the
+same "transactional-mode throughput degrades as the graph grows" pattern
+already documented in the bulk-load findings above, now confirmed at the
+live-ingestion endpoint too — not a coincidence unique to bulk loading.
+Zero errors and zero data loss throughout (every row that was sent was
+accepted), so this is purely a throughput-decay finding, not a
+correctness or reliability one. Practical implication: a single-run
+"rows/s" number for this endpoint is optimistic for anything longer than
+a couple of minutes — capacity planning should use a decaying-rate model
+(or the ~470 rows/s three-minute average) rather than the ~830 rows/s
+best-case burst number from Phase 1.
+
+### Root-causing the decay — what it is NOT, and the real-scale result
+
+Four hypotheses were tested empirically, in order, each by resetting
+Memgraph to a controlled state and re-measuring the same
+`batch_size=8, concurrency=16` sustained burst:
+
+1. **Missing index/constraint.** `ensure_constraints()` (which creates a
+   `txId IS UNIQUE` constraint) was discovered to never be called
+   anywhere in the app — every prior benchmark ran against an unindexed
+   label. Created the constraint manually and re-ran against the
+   already-114K-node graph: **no change** (rate stayed ~250–270 rows/s,
+   same as before). Ruled out.
+2. **Snapshot stalls.** Memgraph's default `--storage-snapshot-interval-sec=300`
+   is wall-clock since server start, not per-run — across ~12 minutes of
+   continuous benchmarking, snapshot files on disk were found exactly 5
+   minutes apart, meaning a snapshot genuinely had been firing mid-run.
+   (This matches [memgraph/memgraph#2860](https://github.com/memgraph/memgraph/issues/2860),
+   a real report of "linear drop in throughput over time" traced to
+   snapshot creation blocking writes.) Re-ran with
+   `--storage-snapshot-interval-sec=3600` on a **fresh, empty graph**
+   (so no snapshot could fire during the 180s window): decay was still
+   present, same shape (1451.7 rows/s at 10s down to 333.7 rows/s at
+   170s, 587.1 rows/s average). Ruled out as the (sole) cause.
+3. **WAL rotation.** WAL segments rotate at 20MiB; the segment never
+   reached that size during any single run. Ruled out.
+4. **GC cycle interval.** Re-ran the same fresh-graph 180s test with
+   `--storage-gc-cycle-sec=5` (vs. the 30s default): essentially
+   identical curve (351.4 rows/s at 170s, 601.4 rows/s average — within
+   noise of the default-GC run). Ruled out.
+
+With every reachable Memgraph config knob ruled out, the open question
+became whether the decay flattens toward some acceptable floor as the
+graph grows, or keeps collapsing — not answerable by extrapolating from
+the ~100K-node runs above, so it was tested directly.
+
+**Real-scale test: 1,000,000 pre-loaded nodes.** Bulk-loaded 1M synthetic
+`Transaction` nodes via `LOAD CSV` in analytical mode (3.23s, 309,632.9
+rows/s — consistent with the bulk-load benchmarks above), switched back
+to `IN_MEMORY_TRANSACTIONAL`, confirmed the unique constraint was intact
+post-switch, then ran the same `batch_size=8, concurrency=16` sustained
+burst against it:
+
+| Elapsed | Rows sent | Window rate | Node count |
+|---|---|---|---|
+| 10.0s | 128 | 12.8 rows/s | 1,000,128 |
+| 20.0s | 408 | 28.0 rows/s | 1,000,408 |
+| 30.1s | 760 | 35.0 rows/s | 1,000,760 |
+| 40.1s | 1,016 | 25.6 rows/s | 1,001,016 |
+| 60.1s | 1,528 | 25.6 rows/s | 1,001,528 |
+| 80.2s | 2,040 | 25.5 rows/s | 1,002,040 |
+
+**Total: 2,304 rows in 92.9s = 24.8 rows/s average, 2 errors.**
+
+This is not a gradual decay at this scale — it's a **cliff**: throughput
+collapses to ~25 rows/s almost immediately and flatlines there, a **~33x
+drop** from the 830 rows/s small-graph baseline. The unique constraint
+was verified present after the mode switch (`SHOW CONSTRAINT INFO`
+confirmed it), so this isn't the same missing-index bug as hypothesis 1
+above — something about `MERGE`-based lookup/write cost against a
+million-node label is fundamentally more expensive than the ~100K-node
+runs predicted by extrapolation.
+
+**Conclusion: this is an unresolved, serious problem, not a tuning
+question.** Every config lever available from outside Memgraph
+(indexing, snapshot interval, GC cycle) has been tested and ruled out.
+The live-ingestion endpoint as currently built (`UNWIND ... MERGE`
+per-batch, `IN_MEMORY_TRANSACTIONAL`) is not viable for continuous
+ingestion once the graph reaches real AML-scale (millions of nodes) —
+25 rows/s cannot keep pace with any realistic transaction stream.
+
+**Not yet investigated (next session, before treating this as settled):**
+- `EXPLAIN`/`PROFILE` the actual `MERGE` query against the 1M-node graph
+  to see what Memgraph's query planner is actually doing — confirm
+  whether the constraint's underlying index is being used for the
+  lookup at all, rather than assuming it because `SHOW CONSTRAINT INFO`
+  lists it.
+- Whether Memgraph's unique-constraint index has different scaling
+  characteristics than a label-property index (`CREATE INDEX`) — try
+  both and compare.
+- FastAPI/uvicorn worker count (`--workers`) — still untested; unlikely
+  to explain a 33x cliff that correlates with graph size, but not ruled
+  out.
+- Whether this is specific to `MERGE`'s existence-check semantics
+  specifically (vs. a pure `CREATE`, which skips the check) — would
+  narrow the cause to lookup cost vs. write cost.
 
 ### Message queue (Kafka/Redpanda) research — should one sit in front of this endpoint?
 
