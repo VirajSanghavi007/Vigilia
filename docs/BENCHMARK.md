@@ -80,6 +80,65 @@ dataset large enough to actually stress this.
 for bulk-loading this dataset** (262 → 1,172,963 rows/s), and matches
 Memgraph's own published benchmark almost exactly (see Sources).
 
+### `LOAD CSV` shard-count sweep, retested at 15,000,000 nodes
+
+The 203,769-node sweep above finished too fast (under 2s) to separate
+real shard-count effects from noise. Retested against a synthetic
+15,000,000-node / 17,251,512-edge dataset — same column format as the
+real dataset, generated via `scripts/synthetic/generate_bulk_dataset.py`
+using genuine multiprocessing (24 worker processes, ~1.49M nodes/sec
+generated, 10.1s total; see that script's docstring for why Pool over
+threads/vectorized-only). Tested 8/12/16/20/24 shards, each on a
+freshly wiped instance:
+
+| Shards | Nodes phase | Edges phase | **Load time (nodes+edges)** | Total wall time* |
+|---|---|---|---|---|
+| 8 | 10.84s | 25.04s | 35.88s | 115.13s |
+| 12 | 10.21s | 20.89s | 31.10s | 116.20s |
+| **16** | **10.23s** | **18.59s** | **28.82s** | 120.74s |
+| 20 | 12.99s | 22.42s | 35.41s | 137.31s |
+| 24 | 27.77s | 32.40s | 60.17s | 159.33s |
+
+\* "Total wall time" includes an untimed finalize step (switching back
+to transactional mode + creating the uniqueness constraint across all
+15M nodes) that is **not shard-count-dependent** — confirmed by
+re-running the 16-shard case with that step separately timed: **73.01s**,
+in the same range as every other run's implied finalize cost (79-99s),
+regardless of shard count. Total wall time is a **confounded metric**
+here: it's dominated by a roughly-constant cost unrelated to what shard
+count actually controls, so ranking shard counts by total wall time
+alone would be misleading — **16 shards is the real winner** by the
+metric shard count actually affects (nodes+edges load time, 28.82s vs.
+8 shards' 35.88s), not 8, even though 8 happened to draw a smaller
+finalize-step time and so looked best by total wall time alone.
+
+Two genuinely clear, monotonic-enough signals at this scale (unlike the
+203K-row test, which showed a flat noisy band):
+- **16 shards is the sweet spot** — best on both phases, or tied for it.
+- **24 shards (= this machine's full logical core count) is
+  dramatically worse**, not better — nodes phase alone takes 2.6x
+  longer than at 8-16 shards (27.77s vs. ~10.2-10.8s). Matching shard
+  count to core count is actively counterproductive here: Memgraph's
+  own internal write coordination becomes the bottleneck once enough
+  concurrent connections already saturate it, and additional
+  connections beyond that just add contention overhead rather than
+  more throughput. 20 shards shows the same degradation starting.
+
+A second, separate finding from the same rerun: node+edge phases (29.88s)
+plus the timed finalize phase (73.01s) sums to 102.89s, but total wall
+time was 118.98s — a ~16s gap attributable to the untimed
+`CREATE INDEX ON :Transaction(txId)` step (needed before the edges phase
+can MATCH efficiently — see Finding 3 below) also taking real time at
+15M-node scale, not the "instant" it appeared to be in the smaller test.
+
+**Practical takeaway: benchmark shard count empirically per dataset
+size, don't assume more shards (or "shards = cores") is better** — the
+optimal count here (16) is neither the smallest tested (8) nor the
+machine's core count (24), and the *ranking* of shard counts genuinely
+changes between the 203K-row and 15M-row tests (8 tied-for-best at small
+scale, 16 clearly best at large scale, 24 fine at small scale but the
+worst option at large scale).
+
 ## Findings
 
 ### 1. Sequential transactional-mode writes degrade to a stall, not just "slow"
@@ -171,10 +230,21 @@ idempotency).
 - `scripts/benchmark_parallel_load.py` — concurrent UNWIND, analytical
   mode, `--workers N`.
 - `scripts/benchmark_loadcsv.py` — concurrent `LOAD CSV`, analytical
-  mode, `--shards N`. Shards the real dataset into
-  `data/syndata/csv_shards/` (gitignored, regenerated each run) — the
-  Memgraph container must be (re)started after `docker-compose.yml`'s
-  volume mount is added/changed for shards to be visible inside it.
+  mode, `--shards N`, `--source-dir <path>` (defaults to the real
+  dataset; point at any directory with the same
+  `elliptic_txs_classes.csv`/`elliptic_txs_edgelist.csv` format —
+  e.g. a synthetic dataset — to benchmark at a different scale). Shards
+  the source into `data/syndata/csv_shards/` (gitignored, regenerated
+  each run) — the Memgraph container must be (re)started after
+  `docker-compose.yml`'s volume mount is added/changed for shards to be
+  visible inside it. Prints nodes/edges/finalize phases separately —
+  finalize (constraint creation) is the dominant, largely
+  shard-count-independent cost at large scale (see the 15M-node sweep
+  above), so don't judge shard-count performance from total wall time.
+- `scripts/synthetic/generate_bulk_dataset.py` — generates a large
+  synthetic dataset in the real dataset's exact flat-CSV format via
+  genuine multiprocessing (`--n-nodes`, `--workers`, `--out-dir`), for
+  feeding into `benchmark_loadcsv.py --source-dir`.
 
 ## Sources (Memgraph official documentation, unless noted)
 

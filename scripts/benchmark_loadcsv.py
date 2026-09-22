@@ -34,13 +34,13 @@ from pathlib import Path
 
 from neo4j import GraphDatabase
 
-DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "elliptic_bitcoin_dataset"
+DEFAULT_DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "elliptic_bitcoin_dataset"
 SHARD_DIR = Path(__file__).resolve().parent.parent / "data" / "syndata" / "csv_shards"
 CLASS_MAP = {"1": "illicit", "2": "licit", "unknown": "unknown"}
 
 
-def shard_classes_csv(n_shards: int) -> int:
-    with (DATA_DIR / "elliptic_txs_classes.csv").open(newline="") as f:
+def shard_classes_csv(data_dir: Path, n_shards: int) -> int:
+    with (data_dir / "elliptic_txs_classes.csv").open(newline="") as f:
         reader = csv.DictReader(f)
         rows = [{"txId": row["txId"], "class": CLASS_MAP[row["class"]]} for row in reader]
 
@@ -63,8 +63,8 @@ def shard_classes_csv(n_shards: int) -> int:
     return len(rows)
 
 
-def shard_edges_csv(n_shards: int) -> int:
-    with (DATA_DIR / "elliptic_txs_edgelist.csv").open(newline="") as f:
+def shard_edges_csv(data_dir: Path, n_shards: int) -> int:
+    with (data_dir / "elliptic_txs_edgelist.csv").open(newline="") as f:
         reader = csv.DictReader(f)
         rows = list(reader)
 
@@ -123,11 +123,19 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--uri", default="bolt://localhost:7687")
     parser.add_argument("--shards", type=int, default=8)
+    parser.add_argument(
+        "--source-dir",
+        type=Path,
+        default=DEFAULT_DATA_DIR,
+        help="Directory with elliptic_txs_classes.csv/elliptic_txs_edgelist.csv "
+        "(defaults to the real dataset; point at a synthetic dataset directory "
+        "in the same format to benchmark at a different scale).",
+    )
     args = parser.parse_args()
 
     SHARD_DIR.mkdir(parents=True, exist_ok=True)
-    n_classes = shard_classes_csv(args.shards)
-    n_edges = shard_edges_csv(args.shards)
+    n_classes = shard_classes_csv(args.source_dir, args.shards)
+    n_edges = shard_edges_csv(args.source_dir, args.shards)
     print(f"Sharded {n_classes} class rows and {n_edges} edge rows into {args.shards} files each.")
     print("NOTE: if the memgraph container was already running, restart it "
           "(docker compose restart memgraph) so the new shard files are visible inside it.")
@@ -175,6 +183,13 @@ def main() -> None:
         """,
     )
 
+    # Switching back to transactional mode + creating the uniqueness
+    # constraint requires validating uniqueness across every existing
+    # node — confirmed to dominate total wall time at scale (measured
+    # ~79-99s at 15M nodes vs. ~36-60s for the actual LOAD CSV phases
+    # combined), so it gets its own timer rather than being silently
+    # absorbed into "total wall time" with no visibility into why.
+    t_finalize = time.perf_counter()
     driver = GraphDatabase.driver(args.uri)
     with driver.session() as session:
         session.run("STORAGE MODE IN_MEMORY_TRANSACTIONAL").consume()
@@ -182,11 +197,13 @@ def main() -> None:
         node_count = session.run("MATCH (t:Transaction) RETURN count(t) AS n").single()["n"]
         edge_count = session.run("MATCH ()-[r:SENT_TO]->() RETURN count(r) AS n").single()["n"]
     driver.close()
+    finalize_seconds = time.perf_counter() - t_finalize
 
     print("\n--- Results ---")
     print(f"Shards: {args.shards}")
     print(f"Nodes phase: {node_seconds:.2f}s ({n_classes / node_seconds:.0f} rows/s)")
     print(f"Edges phase: {edge_seconds:.2f}s ({n_edges / edge_seconds:.0f} rows/s)")
+    print(f"Finalize phase (mode switch + constraint + counts): {finalize_seconds:.2f}s")
     print(f"Total wall time: {time.perf_counter() - t_start:.2f}s")
     print(f"Final counts: {node_count} nodes, {edge_count} edges")
 
