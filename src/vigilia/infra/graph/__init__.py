@@ -19,4 +19,9 @@ __all__ = ["MemgraphStore", "get_graph_store"]
 @lru_cache
 def get_graph_store() -> MemgraphStore:
     uri = os.environ.get("MEMGRAPH_URI", "bolt://localhost:7687")
-    return MemgraphStore(uri)
+    store = MemgraphStore(uri)
+    # Was previously never called anywhere — a real deployment would run
+    # fully unindexed until someone did this manually. lru_cache makes this
+    # a one-time cost on first use, not per-request.
+    store.ensure_constraints()
+    return store

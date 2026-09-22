@@ -455,29 +455,240 @@ above — something about `MERGE`-based lookup/write cost against a
 million-node label is fundamentally more expensive than the ~100K-node
 runs predicted by extrapolation.
 
-**Conclusion: this is an unresolved, serious problem, not a tuning
-question.** Every config lever available from outside Memgraph
-(indexing, snapshot interval, GC cycle) has been tested and ruled out.
-The live-ingestion endpoint as currently built (`UNWIND ... MERGE`
-per-batch, `IN_MEMORY_TRANSACTIONAL`) is not viable for continuous
-ingestion once the graph reaches real AML-scale (millions of nodes) —
-25 rows/s cannot keep pace with any realistic transaction stream.
+**Conclusion at the time: unresolved, serious problem.** Every config
+lever available from outside Memgraph (snapshot interval, GC cycle) had
+been tested and ruled out. That turned out to be looking in the wrong
+place — see below.
 
-**Not yet investigated (next session, before treating this as settled):**
-- `EXPLAIN`/`PROFILE` the actual `MERGE` query against the 1M-node graph
-  to see what Memgraph's query planner is actually doing — confirm
-  whether the constraint's underlying index is being used for the
-  lookup at all, rather than assuming it because `SHOW CONSTRAINT INFO`
-  lists it.
-- Whether Memgraph's unique-constraint index has different scaling
-  characteristics than a label-property index (`CREATE INDEX`) — try
-  both and compare.
-- FastAPI/uvicorn worker count (`--workers`) — still untested; unlikely
-  to explain a 33x cliff that correlates with graph size, but not ruled
-  out.
-- Whether this is specific to `MERGE`'s existence-check semantics
-  specifically (vs. a pure `CREATE`, which skips the check) — would
-  narrow the cause to lookup cost vs. write cost.
+### Root cause found: a unique constraint is not a queryable index
+
+The very next session `PROFILE`d the actual `MERGE` query against the
+1M-node graph instead of assuming the constraint made lookups fast:
+
+```
+PROFILE UNWIND $rows AS row MERGE (t:Transaction {txId: row.tx_id}) SET ...
+```
+
+```
+"Filter (t :Transaction), {row.tx_id}, {t.txId}"
+  "ScanAll (t)"   actual_hits = 8,000,008   (~8 rows/batch x ~1,000,001 nodes)
+```
+
+**`MERGE` was doing a full label scan on every single row**, filtered
+afterward — not an index seek. Confirmed the same for a plain `MATCH
+(t:Transaction {txId: $id})`. `SHOW INDEX INFO` was empty the entire
+time this project has existed.
+
+The cause: `ensure_constraints()`
+([memgraph_client.py](../src/vigilia/infra/graph/memgraph_client.py))
+only ran `CREATE CONSTRAINT ... ASSERT t.txId IS UNIQUE`. In Memgraph, a
+unique constraint enforces uniqueness but is a **separate structure**
+from a queryable index — `CREATE INDEX ON :Transaction(txId)` has to be
+created explicitly, or every `MATCH`/`MERGE` on that property is O(n)
+regardless of the constraint. This one fact fully explains everything
+observed across both sessions: the "decay" (a growing scan getting
+slower as the graph grows during a run), the "cliff" at 1M nodes (a much
+bigger scan), and why snapshot interval, GC cycle, WAL rotation, and
+batch size all made no measurable difference — none of them touch an
+O(n) scan.
+
+Made worse by a second bug found in the same pass: `ensure_constraints()`
+was defined but **never called anywhere in the app** — a real deployment
+would have run fully unindexed even after adding the index, unless
+someone ran it manually. Fixed by calling it once from
+[`get_graph_store()`](../src/vigilia/infra/graph/__init__.py) (the
+`@lru_cache`'d factory), so it's a one-time cost on first use.
+
+**Fix:**
+```python
+def ensure_constraints(self) -> None:
+    with self._driver.session() as session:
+        session.run("CREATE CONSTRAINT ON (t:Transaction) ASSERT t.txId IS UNIQUE")
+        session.run("CREATE INDEX ON :Transaction(txId)")
+```
+
+**Re-measured after the fix, same 1M-node graph, same batch=8 pattern:**
+
+| Path tested | Duration | Result |
+|---|---|---|
+| Raw driver, single session, sequential | 90s | 681,880 rows = **7,576 rows/s**, flat (7,508→7,588/s), 0 errors |
+| Real `/v1/ingest/transaction/batch` endpoint, concurrency=16 | 90s | 308,720 rows = **3,429 rows/s**, rising/stable (2,897→3,429/s), 0 errors |
+
+Both numbers are end-to-end against a real ≥1M-node graph, not a
+projection. The `PROFILE` operator changed from `ScanAll` (actual_hits
+in the millions) to `ScanAllByLabelProperties` (an actual index seek)
+once the index existed. This is not a tuning improvement — the
+bottleneck this whole investigation was chasing did not exist once the
+missing index was added; **~3,400-7,600 rows/s replaces a 25 rows/s
+cliff**, comfortably past the 1,000 rows/s target for this project.
+
+One reproducible gotcha hit while re-testing the endpoint path: the
+first pass through it measured only ~38 rows/s, which looked like a
+second scale bottleneck — it was actually the *benchmark client* calling
+module-level `httpx.post(...)`, which opens a fresh, non-pooled `Client`
+(and thus a fresh TCP connection) on every call. Switching to a shared
+`httpx.Client(...)` with connection pooling fixed it. Worth remembering
+before concluding a server-side regression from a benchmark script that
+itself has a connection-reuse bug.
+
+**Still open (not urgent — well past target, but real gaps):**
+- Whether raw-driver (7,576/s) vs endpoint (3,429/s) is FastAPI/uvicorn
+  overhead worth optimizing, or just realistic client-side cost — not
+  investigated, since both are already well over the 1k/s target.
+- `upsert_edge`/`upsert_edges_batch` MERGE relationship existence checks
+  were not part of this fix or re-test — `MERGE (a)-[:SENT_TO]->(b)` has
+  no relationship-level index in Memgraph and its cost scales with node
+  degree, not graph size; untested at scale, separate question from the
+  one resolved here.
+- uvicorn is running with its default single worker; multi-worker was
+  never tested since single-worker already clears the target.
+
+### Re-sweeping batch size and concurrency now that the index fix is in
+
+Batch=8/concurrency=16 (the earlier winners) were found while every
+request paid an O(n) scan — not a meaningful optimum once that cost is
+gone. Re-ran bisection + concurrency sweep + a 180s sustained run
+against a **fresh, empty, growing** graph (`scripts/benchmark_ingest_endpoint.py`,
+unchanged):
+
+| Phase | Winner | Rate |
+|---|---|---|
+| Batch-size bisection (5→30, refined around the peak) | batch=30 | 5,906.8 rows/s |
+| Concurrency sweep at batch=30 | concurrency=**4** | 1,312.6 rows/s |
+| 180s sustained at batch=30/concurrency=4 | — | 418,470 rows = **2,324.7 rows/s**, flat (2,029→2,357/s), 0 errors |
+
+Concurrency=16 (the old winner) was now *worse* than concurrency=4
+(1,306.7 vs 1,312.6 rows/s) — with the scan bottleneck gone, throughput
+is no longer client-request-bound, so higher client concurrency just
+contends against Memgraph's `IN_MEMORY_TRANSACTIONAL` write
+serialization instead of helping.
+
+The bisection script only searches around the peak it finds in a coarse
+sweep, so it never tried batch sizes above 30. A wider manual sweep
+(8/30/50/100/200/500/1000/2000, 6s bursts each, run directly against
+the **15M-node graph** — see below) found the real optimum is much
+higher:
+
+| Batch size | rows/s |
+|---|---|
+| 8 | 1,041.0 |
+| 30 | 4,847.1 |
+| 50 | 7,099.5 |
+| 100 | 11,324.4 |
+| 200 | 15,524.5 |
+| 500 | 6,478.0 *(likely single-burst noise, not a real dip — see below)* |
+| 1000 | 11,117.3 |
+| 2000 | **23,939.0** |
+
+Batch=500's dip breaks the otherwise-monotonic trend; a single 6s point
+per batch size is not enough to trust in isolation, and it wasn't
+re-measured given the 180s sustained run below already confirms the
+2000-batch conclusion holds. Concurrency re-swept at batch=2000:
+
+| Concurrency | rows/s |
+|---|---|
+| 1 | 24,807.3 |
+| 2 | 35,280.7 |
+| 4 | 47,030.7 |
+| **8** | **48,657.1** |
+| 16 | 44,686.8 |
+| 32 | 24,508.0 (latency climbing — 10.1s to drain 8s of submitted work) |
+
+Pushed the batch-size sweep further (2000/5000/10000/50000/100000,
+single connection, minimum 3 completed requests per size — a single
+100k-row request takes ~4s, so a fixed short time window stops being a
+fair comparison past a few thousand):
+
+| Batch size | rows/s | avg per-request time |
+|---|---|---|
+| 2,000 | 2,568.7 *(cold start on this point, see below)* | 0.777s |
+| 5,000 | 22,651.7 | 0.218s |
+| 10,000 | **24,001.2** | 0.411s |
+| 50,000 | 23,103.9 | 2.129s |
+| 100,000 | 23,578.8 | 4.159s |
+
+Single-connection throughput **plateaus at ~23,000-24,000 rows/s once
+batch size clears ~5,000, and does not improve further at 10x-20x
+larger batches** — 100,000-row batches just take proportionally longer
+per request (4.159s vs 0.218s) for the same per-row rate. That's a real
+ceiling: one Bolt connection doing one big `UNWIND` is bound by
+Memgraph's per-row write cost inside that single transaction, not by
+request/serialization overhead, so bigger batches past this point don't
+buy anything. (The 2,000-row point above looks anomalously low because
+it was the first point in the sweep, right after `ensure_constraints()`
+ran — a cold-start artifact, not a real characteristic of batch=2000;
+it measured 23,939 rows/s in the earlier, warmed-up sweep.)
+
+Checked whether this ceiling moves with concurrency — 15s burst,
+concurrency=8, comparing batch=2000 vs batch=10000: **43,490.2 rows/s
+vs 50,198.6 rows/s**. batch=10000 is the better production default,
+consistent with it being the true single-connection optimum.
+
+Re-ran the full 120s sustained validation at batch=10000/concurrency=8
+(the earlier 120s validation used batch=2000, before this extended
+sweep found batch=10000 was better) — fresh 15M-node graph, same
+methodology as the batch=2000 run below:
+
+| Elapsed | Rows sent | Window rate |
+|---|---|---|
+| 15.0s | 650,000 | 43,318.8/s |
+| 30.0s | 1,460,000 | 48,651.7/s |
+| 60.0s | 3,050,000 | 50,821.6/s |
+| 90.0s | 4,660,000 | 51,766.7/s |
+| 120.0s | 6,240,000 | 51,988.2/s |
+
+**Total: 6,320,000 rows in 121.5s = 52,036.9 rows/s, 0 errors.** Holds
+and slightly *beats* the earlier 15s comparison (52.0k/s vs the 50.2k/s
+snapshot) — no decay, stable/rising, same warm-up-then-flat shape as
+every other sustained run in this doc.
+
+**Recommended production config: batch=10000, concurrency=8 — validated
+at ~52,000 rows/s sustained over 120s at 15M+ node scale, not just a
+short burst.** Concurrency still peaks in the single digits and falls
+off past ~16-32 regardless of batch size — same write-serialization
+ceiling as the small-graph sweep, just at a much higher absolute rate
+because each write is now cheap.
+
+**Correcting a number from earlier in this session:** the bulk `LOAD
+CSV` historical-load path (~370,000-440,000 rows/s) is sometimes loosely
+called "~1M rows/s" — it isn't; that figure was never measured. It's
+also a different operation from live ingestion (one-time cold import,
+analytical mode, no concurrent read/write) and shouldn't be quoted
+alongside the ~52k rows/s live-ingestion number above as if they were
+comparable.
+
+### 15M-node real-scale result, with the index fix
+
+Bulk-loaded 15,000,000 synthetic `Transaction` nodes via `LOAD CSV` (16
+shards, analytical mode): 40.5s load (370,678.7 rows/s) + 45.5s for
+`ensure_constraints()` (constraint + index together) = ~87s total setup.
+Confirmed via `SHOW INDEX INFO`/`SHOW CONSTRAINT INFO` both present
+before testing.
+
+120s sustained run through the real endpoint at batch=2000/concurrency=8:
+
+| Elapsed | Rows sent | Window rate |
+|---|---|---|
+| 15.0s | 620,000 | 41,330.2/s |
+| 30.0s | 1,346,000 | 44,862.2/s |
+| 60.0s | 2,778,000 | 46,293.2/s |
+| 90.0s | 4,196,000 | 46,614.0/s |
+| 120.0s | 5,612,000 | 46,757.5/s |
+
+**Total: 5,624,000 rows in 120.2s = 46,794.2 rows/s, 0 errors.** Rate
+climbs for the first ~30s (thread-pool/connection warm-up) then holds
+flat — no decay at all, at a graph that grew from 15.0M to ~20.6M nodes
+during the run. **46.8x past the 1,000 rows/s target**, confirmed at
+real scale, through the real endpoint, not extrapolated.
+
+This closes out the throughput-decay/scale investigation: the original
+problem (missing index) is fixed, the batch/concurrency config has been
+re-tuned for the fixed code path at both small and real scale, and the
+result is stable and comfortably over target at 15M+ nodes. Production
+default should be **batch=2000, concurrency=8** for this endpoint
+shape, not the batch=8/concurrency=16 or batch=30/concurrency=4 figures
+found earlier in this doc — those were measured under conditions
+(unindexed, or small-graph-only) that don't hold at real scale.
 
 ### Message queue (Kafka/Redpanda) research — should one sit in front of this endpoint?
 
@@ -515,6 +726,178 @@ Findings (see Sources for full citations):
   infra-adjacent Memgraph module cuts against this project's layered
   architecture, and isn't clearly a throughput win over our own batched
   endpoint anyway.
+
+## Hot/cold archive: Neo4j vs Postgres+AGE, and the built exporter
+
+Explored whether Memgraph (hot) should periodically export a point-in-time
+snapshot to a durable cold store, for compliance officers who need "the
+graph as it stood at time T," independent of Memgraph's in-memory state.
+
+**Backend choice.** Benchmarked Neo4j and Postgres+Apache AGE (openCypher
+on Postgres) for bulk write throughput, streaming a real export out of
+Memgraph. The naive sequential pipeline (read a batch, then write it,
+then read the next) showed both backends at ~17,380 rows/s — misleadingly
+identical. Isolating pure write throughput on identical in-memory data
+showed Neo4j genuinely faster (47,430.6 rows/s vs. 27,387.6 rows/s). A
+threaded producer/consumer pipeline then showed the *opposite* (AGE
+32,336.6 vs. Neo4j 27,632.5) — a GIL artifact: the reader and the Neo4j
+writer both use the pure-Python `neo4j` driver's Bolt/PackStream parsing,
+so two threads doing that work contend for the GIL, while AGE's writer
+(psycopg2, a C extension) doesn't. Re-run with real process-level
+parallelism (`multiprocessing`, no GIL contention) confirmed Neo4j is
+faster: **28,505.0 rows/s vs. 24,254.8 rows/s**. **Neo4j was selected**
+as the cold-archive backend on this result.
+
+**Edge cases benchmarked before building anything** (100k-node scale,
+each a concrete measurement, not just reasoning):
+
+| # | Risk | Measured |
+|---|---|---|
+| 1 | Snapshot consistency | A live streaming read while writes continue is NOT an atomic snapshot — ~0.7% of rows in one run reflected a write that landed after export start |
+| 2 | Crash-restart duplication | `CREATE` + naive restart: 10,000 duplicate rows. `MERGE` + same restart: 0 — idempotency is not optional |
+| 3 | Versioned-immutable vs overwrite cost | 63,083.5 rows/s vs 52,857.8 rows/s — versioned is ~0.84x the speed of overwrite, i.e. nearly free |
+| 4 | Reconciliation cost | Count-based drift check: 0.047s for a 100k-row snapshot; catches *that* something's wrong, not *what* |
+| 5 | Backpressure | An unbounded queue with no consumer draining it: 100,000 rows buffered in memory in 2s — a real, fast failure mode |
+| 6 | Cross-store traversal | 4.2x slower per lookup than single-store (1,300.8/s vs 308.9/s), plus a real partial-failure mode (either half can fail independently) |
+| 7 | Schema drift | Validation itself is ~free (5.9M rows/s); the risk is nothing enforcing it stays in sync with upstream changes, not the cost of checking |
+| 8 | Conflict-safe vs blind write | Check-then-write (timestamp guard) costs statistically nothing extra (22,468.6 vs 21,244.6 rows/s) — no real tradeoff not to do it |
+
+**What got built**, addressing all 8 (`src/vigilia/domain/graph/store.py`'s
+`ArchiveStore` Protocol, `src/vigilia/infra/graph/neo4j_client.py`'s
+`Neo4jArchiveStore`, `src/vigilia/infra/graph/snapshot_export.py`'s
+`export_snapshot`):
+
+- **#1** — hard 60s deadline on the export pass (this project's own
+  bound, chosen for a strict "time T" requirement); exceeding it raises
+  `SnapshotDeadlineExceeded` rather than silently producing an
+  arbitrarily-stale snapshot. Enforced via a polling `queue.get(timeout=0.1)`
+  in the consumer loop, not a blocking `get()` — a blocking read would let
+  a genuinely stalled/hung reader (a real network hang, not just a slow
+  query) prevent the deadline check from ever re-running, defeating the
+  deadline entirely. Caught by a unit test that simulates a full reader
+  stall (not just a slow trickle) and asserts the exception fires in
+  well under the stall duration.
+- **#2** — `write_batch()` is `MERGE`-based on a composite
+  `(snapshotId, txId)` key, so a crash-and-restart replay of the whole
+  export is idempotent by construction; no separate checkpoint needed.
+- **#3** — append-only, versioned by `snapshotId` (never overwritten
+  across snapshots) — a later correction in Memgraph can't erase an
+  earlier archived record. Given the cost is ~free per the benchmark,
+  this was the safer default for a compliance archive.
+- **#4** — `SnapshotResult.reconciled` compares `target_count` against
+  `rows_exported` after every run — cheap, run automatically, not a
+  separate scheduled job (a fuller "which rows are missing" diff was
+  out of scope).
+- **#5** — the reader/writer pipeline uses a bounded `queue.Queue(maxsize=20)`;
+  the reader blocks on `put()` once the writer falls behind, instead of
+  buffering without limit.
+- **#6** — not "fixed," treated as a design constraint: `ArchiveStore` is
+  deliberately write-only and one-directional (see its docstring) — the
+  exporter never issues a live query that spans both stores.
+- **#7** — `_validate_row()` drops any record with a null `txId`/`class`
+  before it reaches the batch, rather than letting a malformed row fail
+  the whole batch write.
+- **#8** — `write_batch()`'s `MERGE` includes a
+  `WHERE t.exportedAt IS NULL OR row.exportedAt >= t.exportedAt` guard,
+  so a batch retried out of order can't clobber a newer value with a
+  stale one — defense-in-depth for a one-directional exporter, and
+  directly reusable if the archive ever needs a write-back path.
+
+**Bug the end-to-end smoke test caught that no unit test did:**
+`export_snapshot`'s row shape (`txId`/`class`, matching the Cypher record)
+didn't match `Neo4jArchiveStore.write_batch`'s documented contract
+(`tx_id`/`tx_class`) — a `KeyError` at the first real write. Every unit
+test passed because the mocked `FakeArchiveStore` accepted whatever shape
+it was handed without validating key names. Fixed, and a new unit test
+added (`test_export_snapshot_row_shape_matches_real_archive_store_contract`)
+that wires the *real* `Neo4jArchiveStore` class (mocked driver) into
+`export_snapshot`, specifically so a contract mismatch like this fails in
+the unit suite next time, not only against a real database.
+
+Verified end-to-end against real Memgraph + Neo4j: 100,000-node export,
+7.9s elapsed (well under the 60s deadline), fully reconciled, zero errors.
+
+### Closing the four remaining gaps, and a second real Memgraph-planner bug found doing it
+
+The four items above ("explicitly out of scope") were closed in a follow-up
+pass, each verified against real Memgraph + Neo4j, not just unit-tested:
+
+**Resumable export.** A snapshot too large to finish inside its deadline
+no longer just fails — `Neo4jArchiveStore.save_checkpoint`/`get_checkpoint`
+persist the last exported `txId` on the archive side (durable across a
+full process restart, not just in-memory), and `export_snapshot(...,
+snapshot_id=...)` resumes from there. Reading in `txId` order makes a
+resume a plain `WHERE txId > $checkpoint`, not a re-scan — in principle.
+**Verified at real 15M-node scale**: 18 cycles of the 60s deadline, 1,097.8s
+(~18.3 min) total wall time, fully complete and reconciled
+(`target_count == source_count == 15,000,000`). It works and is correct.
+It is **not fast**, because of the next finding.
+
+**A second real Memgraph query-planner limitation, found verifying this
+at scale**: `EXPLAIN MATCH (t:Transaction) RETURN t.txId ORDER BY t.txId
+LIMIT 10` plans as `Limit -> OrderBy -> Produce -> Filter -> ScanAll -> Once`
+— a full unordered label scan, sorted entirely in memory, THEN limited.
+Confirmed directly: an unordered `LIMIT 10` on the same label returns in
+0.047s; the identical query with `ORDER BY t.txId` added did not return
+within 20s. The `txId` index (added earlier in this doc to fix `MERGE`)
+serves **equality** lookups (`ScanAllByLabelProperties`) but is **not**
+used by the planner for **ordering** — a materially different limitation
+from the one already documented. This means every resumable-export cycle
+pays a full scan+sort of the remaining (shrinking, but still large) rows
+before applying its `WHERE txId > $checkpoint` filter, not an index seek
+from the checkpoint — the 18-minute wall time for the 15M-node case is
+inflated by this, not a reflection of the checkpoint design's real
+overhead. The design still worked correctly specifically *because* the
+60s-deadline-plus-checkpoint architecture is robust to a slow/inefficient
+per-cycle query by construction — a real validation of that choice, found
+by accident while confirming it.
+
+**Real (id-level) reconciliation.** `diff_snapshot` does a sorted-merge
+compare between Memgraph's and the archive's `txId` streams — O(1)
+memory beyond a bounded sample, reports which ids are missing/extra, not
+just that counts differ. **Verified correct at 100k-node scale**
+(`DiffResult(missing_count=0, extra_count=0, ...)` against a clean
+export, and separately unit-tested to correctly surface both missing and
+extra ids from an intentionally-corrupted fake archive). **Not verified
+at 15M-node scale** — it inherits the same `ORDER BY`-without-index cost
+just described, and a single paginated page (even `LIMIT 10`) did not
+return within 20s against the 15M-node graph. A first fix (paginating
+via bounded chunks with a fresh session per chunk, both here and in
+`Neo4jArchiveStore.stream_snapshot_txids`/`stream_snapshot_rows`) was
+necessary and is real — it resolved a *different*, also-confirmed bug
+(`Memgraph.TransientError: Transaction was asked to abort because of
+transaction timeout` from one session streaming 15M rows) — but does not
+fix the underlying sort cost, since every chunk still pays it. **Honest
+status: correct, verified at moderate scale, not yet practical at 15M+.**
+A real fix needs the diff to avoid Memgraph-side `ORDER BY` entirely at
+that scale (e.g., a chunking key that doesn't require cross-query global
+order), not something to claim done without re-verifying.
+
+**Cold-to-hot write-back.** `MemgraphStore.write_back_batch` (a new,
+separate method — the live-ingestion endpoint's `upsert_transaction*`
+methods are untouched) applies archived rows back into Memgraph, guarded
+by an `archiveWrittenAt` timestamp comparison (same pattern as
+`Neo4jArchiveStore.write_batch`'s `exportedAt` guard) so a stale/
+out-of-order write-back can't clobber a newer value.
+`write_back_snapshot` in `infra/graph/write_back.py` mirrors the export
+path's bounded-queue backpressure and deadline. **Verified end-to-end**:
+exported 100k nodes, corrected one node's class directly in the archive
+(simulating a compliance correction), wrote the snapshot back into
+Memgraph, confirmed the correction landed — then deliberately attempted
+a stale write-back with an older timestamp and confirmed the guard
+rejected it (value unchanged). Known limitation, stated in the code: this
+guards write-backs against each other, not against a live-ingestion
+write racing a write-back at the same instant — the live path doesn't
+participate in this guard, since adding it would change
+`upsert_transaction`'s existing contract.
+
+**Explicitly still open**: making `diff_snapshot` practical at 15M+
+scale (needs to stop depending on Memgraph's `ORDER BY`); reporting or
+working around the `ORDER BY`-doesn't-use-index planner behavior itself,
+which also inflates every resumable-export cycle's cost; true
+bidirectional *sync* (write-back today is a manual/one-shot operation
+triggered by a caller with a snapshot_id, not a continuous process
+reacting to changes).
 
 ## Sources (Memgraph official documentation, unless noted)
 

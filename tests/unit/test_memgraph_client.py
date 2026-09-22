@@ -31,10 +31,22 @@ def test_ensure_constraints_runs_unique_constraint(store):
     s.ensure_constraints()
 
     run = _session_run_mock(mock_driver)
-    run.assert_called_once()
-    (query,), _ = run.call_args
-    assert "CONSTRAINT" in query
-    assert "txId IS UNIQUE" in query
+    queries = [call.args[0] for call in run.call_args_list]
+    assert any("CONSTRAINT" in q and "txId IS UNIQUE" in q for q in queries)
+
+
+def test_ensure_constraints_also_creates_queryable_index(store):
+    # A unique constraint alone does NOT make txId lookups use an index in
+    # Memgraph (confirmed via PROFILE against a 1M+ node graph: MATCH/MERGE
+    # fell back to a full label ScanAll with only the constraint present —
+    # see docs/BENCHMARK.md). This must also run CREATE INDEX, or every
+    # MERGE/MATCH by txId is O(n) regardless of the constraint.
+    s, mock_driver = store
+    s.ensure_constraints()
+
+    run = _session_run_mock(mock_driver)
+    queries = [call.args[0] for call in run.call_args_list]
+    assert any("CREATE INDEX" in q and "Transaction(txId)" in q for q in queries)
 
 
 def test_upsert_transaction_merges_with_class(store):
@@ -122,3 +134,17 @@ def test_close_closes_underlying_driver(store):
     s, mock_driver = store
     s.close()
     mock_driver.close.assert_called_once()
+
+
+def test_write_back_batch_merges_and_guards_against_stale_writes(store):
+    s, mock_driver = store
+    s.write_back_batch([{"tx_id": "T1", "tx_class": "illicit", "exported_at": 5.0}])
+
+    run = _session_run_mock(mock_driver)
+    run.assert_called_once()
+    (query,), kwargs = run.call_args
+    assert "MERGE" in query
+    assert "WHERE t.archiveWrittenAt IS NULL OR row.written_at >= t.archiveWrittenAt" in query
+    assert kwargs == {
+        "rows": [{"tx_id": "T1", "tx_class": "illicit", "written_at": 5.0}]
+    }
