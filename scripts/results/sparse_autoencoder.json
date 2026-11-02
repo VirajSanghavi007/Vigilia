@@ -1,0 +1,28 @@
+{
+  "test_auc": 0.2974079128492201,
+  "licit_mean_error": 1.1831939220428467,
+  "illicit_mean_error": 0.6885258555412292,
+  "unlabeled_mean_error": 0.8437886834144592,
+  "licit_vs_unlabeled": {
+    "labeled_mean": 1.1831939220428467,
+    "labeled_median": 0.9877578020095825,
+    "unlabeled_mean": 0.8437886834144592,
+    "unlabeled_median": 0.7074535489082336,
+    "ratio_unlabeled_to_labeled_mean": 0.7131448984146118,
+    "mannwhitney_u": 2448514048.0,
+    "p_value": 0.0,
+    "n_labeled": 42019,
+    "n_unlabeled": 157205
+  },
+  "illicit_vs_unlabeled": {
+    "labeled_mean": 0.6885258555412292,
+    "labeled_median": 0.5824234485626221,
+    "unlabeled_mean": 0.8437886834144592,
+    "unlabeled_median": 0.7074535489082336,
+    "ratio_unlabeled_to_labeled_mean": 1.2255003452301025,
+    "mannwhitney_u": 413409280.0,
+    "p_value": 0.0,
+    "n_labeled": 4545,
+    "n_unlabeled": 157205
+  }
+}

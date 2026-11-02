@@ -1,0 +1,97 @@
+{
+  "top_features": [
+    {
+      "feature": "local_62",
+      "importance_labeled": 0.39938056468963623,
+      "importance_unlabeled": 0.5296151638031006,
+      "diff": 0.13023459911346436
+    },
+    {
+      "feature": "local_54",
+      "importance_labeled": 0.549161970615387,
+      "importance_unlabeled": 0.42228904366493225,
+      "diff": -0.1268729269504547
+    },
+    {
+      "feature": "local_52",
+      "importance_labeled": 0.5488823056221008,
+      "importance_unlabeled": 0.42357203364372253,
+      "diff": -0.1253102719783783
+    },
+    {
+      "feature": "local_46",
+      "importance_labeled": 0.39590439200401306,
+      "importance_unlabeled": 0.5114729404449463,
+      "diff": 0.11556854844093323
+    },
+    {
+      "feature": "local_55",
+      "importance_labeled": 0.4135095179080963,
+      "importance_unlabeled": 0.29854241013526917,
+      "diff": -0.11496710777282715
+    },
+    {
+      "feature": "local_48",
+      "importance_labeled": 0.3964601755142212,
+      "importance_unlabeled": 0.5087193846702576,
+      "diff": 0.11225920915603638
+    },
+    {
+      "feature": "local_91",
+      "importance_labeled": 0.3967292308807373,
+      "importance_unlabeled": 0.5078123211860657,
+      "diff": 0.11108309030532837
+    },
+    {
+      "feature": "local_84",
+      "importance_labeled": 0.3970259130001068,
+      "importance_unlabeled": 0.5039659738540649,
+      "diff": 0.10694006085395813
+    },
+    {
+      "feature": "local_39",
+      "importance_labeled": 0.43791911005973816,
+      "importance_unlabeled": 0.5385589003562927,
+      "diff": 0.10063979029655457
+    },
+    {
+      "feature": "local_83",
+      "importance_labeled": 0.3790515959262848,
+      "importance_unlabeled": 0.4793476462364197,
+      "diff": 0.10029605031013489
+    },
+    {
+      "feature": "local_45",
+      "importance_labeled": 0.43481743335723877,
+      "importance_unlabeled": 0.5346155166625977,
+      "diff": 0.09979808330535889
+    },
+    {
+      "feature": "local_42",
+      "importance_labeled": 0.43197643756866455,
+      "importance_unlabeled": 0.5295456051826477,
+      "diff": 0.09756916761398315
+    },
+    {
+      "feature": "local_5",
+      "importance_labeled": 0.3431858420372009,
+      "importance_unlabeled": 0.4403245449066162,
+      "diff": 0.09713870286941528
+    },
+    {
+      "feature": "local_85",
+      "importance_labeled": 0.3751579523086548,
+      "importance_unlabeled": 0.4712655544281006,
+      "diff": 0.0961076021194458
+    },
+    {
+      "feature": "local_53",
+      "importance_labeled": 0.4926608204841614,
+      "importance_unlabeled": 0.3993000090122223,
+      "diff": -0.09336081147193909
+    }
+  ],
+  "overall_labeled": 65.589111328125,
+  "overall_unlabeled": 64.04124450683594,
+  "n_samples": 25
+}

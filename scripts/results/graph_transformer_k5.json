@@ -1,0 +1,9 @@
+{
+  "roc_auc": 0.8902738810741555,
+  "roc_pr_auc": 0.43316005841485783,
+  "f1": 0.32729986937861544,
+  "classification_report": "              precision    recall  f1-score   support\n\n         0.0     0.9834    0.7819    0.8712     15587\n         1.0     0.2051    0.8098    0.3273      1083\n\n    accuracy                         0.7837     16670\n   macro avg     0.5942    0.7959    0.5992     16670\nweighted avg     0.9328    0.7837    0.8358     16670\n",
+  "model": "graph_transformer_k5",
+  "train_seconds": 52.86251258850098,
+  "k_hops": 5
+}

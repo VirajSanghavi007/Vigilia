@@ -115,7 +115,7 @@ Four independent methods (variance, topology, SHAP, GNNExplainer) all converge: 
 
 ## 8. Illicit-trained autoencoder: a licit-side vote (2026-10-26)
 
-**Idea** ([`scripts/illicit_autoencoder.py`](../../scripts/illicit_autoencoder.py)): section 7 found illicit nodes are the tighter cluster, so flip the one-class setup. Train the same sparse autoencoder (64/16, L1 on the bottleneck, robust median/IQR scaling with clip=10) on **illicit nodes only**; high reconstruction error then means "does not look like known illicit", i.e. a licit score. This is meant only as a third, licit-side vote next to XGBoost and the GNN, never as an illicit detector.
+**Idea** ([`scripts/illicit_autoencoder.py`](../../scripts/illicit_autoencoder.py)): section 7 found illicit nodes are the tighter cluster, so flip the one-class setup. Train the same sparse autoencoder (64/16, L1 on the bottleneck, robust median/IQR scaling with clip=10) on **illicit nodes only**; high reconstruction error then means "does not look like known illicit", i.e. a licit score. This is meant only as a third, licit-side vote next to XGBoost and the GNN, never as an illicit detector. A plain-language walkthrough of the whole model is in [ILLICIT_AUTOENCODER.md](ILLICIT_AUTOENCODER.md).
 
 **Splits (no leakage into evaluation):** fit = illicit, steps 1-30 (2,954 nodes, 90/10 random split for best-epoch selection); calib = all labeled, steps 31-34 (2,989 nodes, used only to pick the clearance threshold at a target licit precision of 0.99 / 0.995); test = labeled steps 35-49 (16,670). Trained on the GPU behind a VRAM guard (free memory read via nvidia-smi, 2 GiB kept free for other jobs, allocator capped at ~4% of the card). 2000 epochs, best val MSE 0.118 at epoch 1998 (still improving slightly).
 

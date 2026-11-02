@@ -1,0 +1,82 @@
+{
+  "pooled_auc": 0.2974079128492201,
+  "per_step": {
+    "35": {
+      "auc": 0.22852686571409608,
+      "n_pos": 182,
+      "n_neg": 1159
+    },
+    "36": {
+      "auc": 0.1965445499773858,
+      "n_pos": 33,
+      "n_neg": 1675
+    },
+    "37": {
+      "auc": 0.34814410480349345,
+      "n_pos": 40,
+      "n_neg": 458
+    },
+    "38": {
+      "auc": 0.33181088064808995,
+      "n_pos": 111,
+      "n_neg": 645
+    },
+    "39": {
+      "auc": 0.35334184759472115,
+      "n_pos": 81,
+      "n_neg": 1102
+    },
+    "40": {
+      "auc": 0.2708874951254387,
+      "n_pos": 112,
+      "n_neg": 1099
+    },
+    "41": {
+      "auc": 0.2637625576975292,
+      "n_pos": 116,
+      "n_neg": 1016
+    },
+    "42": {
+      "auc": 0.1598217114390902,
+      "n_pos": 239,
+      "n_neg": 1915
+    },
+    "43": {
+      "auc": 0.38828008915304607,
+      "n_pos": 24,
+      "n_neg": 1346
+    },
+    "44": {
+      "auc": 0.6873537545203148,
+      "n_pos": 24,
+      "n_neg": 1567
+    },
+    "45": {
+      "auc": 0.5105263157894737,
+      "n_pos": 5,
+      "n_neg": 1216
+    },
+    "47": {
+      "auc": 0.29506840247131505,
+      "n_pos": 22,
+      "n_neg": 824
+    },
+    "48": {
+      "auc": 0.5551724137931034,
+      "n_pos": 36,
+      "n_neg": 435
+    },
+    "49": {
+      "auc": 0.7036989795918367,
+      "n_pos": 56,
+      "n_neg": 420
+    }
+  },
+  "summary": {
+    "n_steps": 14,
+    "mean_auc": 0.37806714059420965,
+    "median_auc": 0.3399774927257917,
+    "frac_above_half": 0.2857142857142857
+  },
+  "verdict": "REAL INVERSION: per-step AUC is still consistently below 0.5 -- illicit really does reconstruct better than licit within individual time steps too, so this is not a drift confound. One-class reconstruction error is not a usable anomaly signal for this dataset as built."
+}

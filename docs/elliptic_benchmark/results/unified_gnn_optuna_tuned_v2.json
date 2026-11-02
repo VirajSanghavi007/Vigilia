@@ -1,0 +1,23 @@
+{
+  "roc_auc": 0.8303928191218847,
+  "roc_pr_auc": 0.3245242199797371,
+  "f1": 0.2500353556781219,
+  "classification_report": "              precision    recall  f1-score   support\n\n         0.0     0.9814    0.6725    0.7981     15587\n         1.0     0.1476    0.8163    0.2500      1083\n\n    accuracy                         0.6819     16670\n   macro avg     0.5645    0.7444    0.5241     16670\nweighted avg     0.9272    0.6819    0.7625     16670\n",
+  "model": "unified_gnn_optuna_tuned_v2",
+  "train_seconds": 135.95053958892822,
+  "best_params": {
+    "hidden": 256,
+    "dropout": 0.1399600146736454,
+    "lr": 0.004452441363965912,
+    "weight_decay": 6.064113646149096e-06,
+    "keep_frac": 0.8013750356917485,
+    "cache_edges": true,
+    "epochs": 125,
+    "patience": 26
+  },
+  "n_trials": 15,
+  "best_cv_f1": 0.7843100319798282,
+  "n_cv_folds": 4,
+  "chosen_threshold": 0.65,
+  "objective": "mean rolling-CV F1 (no pos_weight, BatchNorm only)"
+}

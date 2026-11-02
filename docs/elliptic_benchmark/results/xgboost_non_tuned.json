@@ -1,0 +1,8 @@
+{
+  "roc_auc": 0.9363408115091767,
+  "roc_pr_auc": 0.8068966094380583,
+  "f1": 0.8152341739577972,
+  "classification_report": "              precision    recall  f1-score   support\n\n           0     0.9816    0.9956    0.9886     15587\n           1     0.9209    0.7313    0.8152      1083\n\n    accuracy                         0.9785     16670\n   macro avg     0.9513    0.8635    0.9019     16670\nweighted avg     0.9777    0.9785    0.9773     16670\n",
+  "model": "xgboost_non_tuned",
+  "train_seconds": 8.352128028869629
+}

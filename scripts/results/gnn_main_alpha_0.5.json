@@ -1,0 +1,29 @@
+{
+  "roc_auc": 0.8358037254451394,
+  "roc_pr_auc": 0.23363630903310978,
+  "f1": 0.28858386340810177,
+  "classification_report": "              precision    recall  f1-score   support\n\n         0.0     0.9812    0.7415    0.8447     15587\n         1.0     0.1762    0.7959    0.2886      1083\n\n    accuracy                         0.7451     16670\n   macro avg     0.5787    0.7687    0.5666     16670\nweighted avg     0.9289    0.7451    0.8086     16670\n",
+  "model": "gnn_main_alpha_0.5",
+  "train_seconds": 25.766446828842163,
+  "alpha": 0.5,
+  "params": {
+    "hidden": 256,
+    "dropout": 0.1399600146736454,
+    "lr": 0.004452441363965912,
+    "weight_decay": 6.064113646149096e-06,
+    "keep_frac": 0.8013750356917485,
+    "cache_edges": true,
+    "epochs": 125,
+    "patience": 26
+  },
+  "cv_fold_f1": [
+    0.8523676880222841,
+    0.5895522388059702,
+    0.7237593324549846
+  ],
+  "cv_mean_f1": 0.7218930864277463,
+  "chosen_threshold": 0.525,
+  "n_flagged_illicit_test": 4891,
+  "loss": "focal_loss",
+  "objective": "focal loss (alpha=0.5, gamma=2.0), no Optuna, fixed v2 architecture"
+}
