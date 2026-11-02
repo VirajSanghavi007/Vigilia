@@ -1,31 +1,39 @@
 import { Bell, Building2, Calendar, ChevronDown, Globe, Plus, RefreshCw, Search } from "lucide-react";
 
 interface Props {
-  slaBreaches: number;
+  title?: string;
+  subtitle?: string;
+  /** Red pill next to the title, e.g. "7 SLA breaches". */
+  pill: string;
   refreshedMinsAgo: number;
-  query: string;
-  onQuery: (q: string) => void;
+  /** When omitted the search box is an unwired global search (queue pages have their own). */
+  query?: string;
+  onQuery?: (q: string) => void;
 }
 
-export function Header({ slaBreaches, refreshedMinsAgo, query, onQuery }: Props) {
+export function Header({
+  title = "Financial Crime Overview",
+  subtitle = "Monitoring posture and investigation workload across all business units",
+  pill, refreshedMinsAgo, query, onQuery,
+}: Props) {
   return (
     <header className="header">
       <div className="header-top">
         <div>
           <h1>
-            Financial Crime Overview
-            <span className="sla-pill"><span className="dot" />{slaBreaches} SLA breaches</span>
+            {title}
+            <span className="sla-pill"><span className="dot" />{pill}</span>
           </h1>
-          <p className="subtitle">Monitoring posture and investigation workload across all business units</p>
+          <p className="subtitle">{subtitle}</p>
         </div>
         <div className="header-actions">
           <label className="search">
             <Search size={14} />
-            <input
+            <input key={onQuery ? "alerts" : "global"}
               placeholder="Search case or customer"
-              aria-label="Search alerts"
+              aria-label={onQuery ? "Search alerts" : "Global search"}
               value={query}
-              onChange={(e) => onQuery(e.target.value)}
+              onChange={onQuery && ((e) => onQuery(e.target.value))}
             />
             <kbd>⌘K</kbd>
           </label>
