@@ -1,8 +1,12 @@
 import { useEffect, useState } from "react";
 import { ArrowUpRight, ChevronLeft, ChevronRight, Download, ListChecks, Workflow } from "lucide-react";
+import { Link } from "react-router-dom";
 import type { Alert, AlertStatus } from "../data/types";
 import { filterAlerts, paginate } from "../lib/alerts";
 import { formatCompactCurrency, initials, riskBand } from "../lib/format";
+import { inScope, scopeOfAlert } from "../lib/scope";
+import { alertPath, paths } from "../routes";
+import { useScope } from "./ScopeContext";
 
 const statusClass: Record<AlertStatus, string> = {
   Escalated: "escalated",
@@ -16,10 +20,11 @@ const PAGE_SIZE = 5;
 interface Props { alerts: Alert[]; highRisk: number; query: string }
 
 export function AlertsTable({ alerts, highRisk, query }: Props) {
+  const { scope } = useScope();
   const [page, setPage] = useState(1);
-  useEffect(() => setPage(1), [query]);
+  useEffect(() => setPage(1), [query, scope]);
 
-  const filtered = filterAlerts(alerts, query);
+  const filtered = filterAlerts(alerts.filter((a) => inScope(scopeOfAlert(a), scope)), query);
   const p = paginate(filtered, page, PAGE_SIZE);
 
   return (
@@ -31,7 +36,7 @@ export function AlertsTable({ alerts, highRisk, query }: Props) {
         </div>
         <div className="table-actions">
           <button className="btn"><Download size={13} />Export</button>
-          <button className="btn primary"><ListChecks size={13} />Review alert queue</button>
+          <Link className="btn primary" to={paths.alerts}><ListChecks size={13} />Review alert queue</Link>
         </div>
       </div>
       <div className="table-scroll">
@@ -60,13 +65,13 @@ export function AlertsTable({ alerts, highRisk, query }: Props) {
                   <td><span className={`status ${statusClass[a.status]}`}><span className="dot" />{a.status}</span></td>
                   <td>{a.analyst ? <span className="analyst"><span className="mini-avatar" />{a.analyst}</span> : <span className="muted">-</span>}</td>
                   <td className="right">
-                    <button className={`btn small${first ? " primary" : ""}`}>Review <ArrowUpRight size={12} /></button>
+                    <Link className={`btn small${first ? " primary" : ""}`} to={alertPath(a.id)} aria-label={`Review ${a.entity}`}>Review <ArrowUpRight size={12} /></Link>
                   </td>
                 </tr>
               );
             })}
             {p.items.length === 0 && (
-              <tr><td colSpan={7} className="empty">No alerts match "{query}"</td></tr>
+              <tr><td colSpan={7} className="empty">{query ? `No alerts match "${query}"` : "No alerts in the selected scope"}</td></tr>
             )}
           </tbody>
         </table>

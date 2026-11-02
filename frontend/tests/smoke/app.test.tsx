@@ -1,11 +1,12 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { MemoryRouter } from "react-router-dom";
 import App from "../../src/App";
 
 describe("dashboard smoke", () => {
   it("renders every section without errors", () => {
     const errors = vi.spyOn(console, "error");
-    render(<App />);
+    render(<MemoryRouter><App /></MemoryRouter>);
     expect(screen.getByRole("heading", { name: /Financial Crime Overview/ })).toBeInTheDocument();
     for (const title of [
       "Risk trend", "Transaction monitoring", "Alert severity",

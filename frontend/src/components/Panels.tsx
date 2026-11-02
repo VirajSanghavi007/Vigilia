@@ -1,6 +1,8 @@
 import { AlertOctagon, ChevronRight, FileCheck, StickyNote, UserPlus } from "lucide-react";
+import { Link } from "react-router-dom";
 import type { Dashboard } from "../data/types";
 import { percentOf } from "../lib/format";
+import { paths } from "../routes";
 
 export function TypologyBreakdown({ data, coverage }: { data: Dashboard["typologies"]; coverage: string }) {
   const total = data.reduce((s, d) => s + d.count, 0);
@@ -9,7 +11,7 @@ export function TypologyBreakdown({ data, coverage }: { data: Dashboard["typolog
     <div className="card">
       <div className="card-head">
         <div><h2>Alert typology breakdown</h2><p className="card-sub">Active alert mix</p></div>
-        <a className="link" href="#">All typologies <ChevronRight size={13} /></a>
+        <Link className="link" to={paths.typologies}>All typologies <ChevronRight size={13} /></Link>
       </div>
       <ul className="typologies">
         {data.map((t) => (
@@ -43,7 +45,7 @@ export function GeographicRisk({ hotspots, elevated, newAlerts }: { hotspots: Da
     <div className="card">
       <div className="card-head">
         <div><h2>Geographic risk</h2><p className="card-sub">Originating jurisdictions</p></div>
-        <a className="link" href="#">Risk map <ChevronRight size={13} /></a>
+        <Link className="link" to={paths.riskMap}>Risk map <ChevronRight size={13} /></Link>
       </div>
       <div className="map">
         <svg viewBox="0 0 100 60" preserveAspectRatio="none" aria-hidden>
@@ -67,7 +69,7 @@ export function CaseActivity({ items, today }: { items: Dashboard["activity"]; t
     <div className="card">
       <div className="card-head">
         <div><h2>Case activity</h2><p className="card-sub">Latest team actions</p></div>
-        <a className="link" href="#">View log <ChevronRight size={13} /></a>
+        <Link className="link" to={paths.audit}>View log <ChevronRight size={13} /></Link>
       </div>
       <ul className="activity">
         {items.map((a) => {

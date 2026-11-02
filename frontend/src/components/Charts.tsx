@@ -1,14 +1,18 @@
 import { ChevronRight, TrendingUp } from "lucide-react";
+import { Link } from "react-router-dom";
 import {
   Bar, BarChart, CartesianGrid, Cell, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import type { Dashboard } from "../data/types";
 import { formatDelta } from "../lib/format";
+import { paths } from "../routes";
 
 const axis = { fontSize: 10, fill: "var(--muted)" };
 
-export function RiskTrend({ data }: { data: Dashboard["riskTrend"] }) {
+export function RiskTrend({ data, link = true }: { data: Dashboard["riskTrend"]; link?: boolean }) {
   const peak = data.reduce((m, d) => (d.high > m.high ? d : m), data[0]);
+  // A one-day range ("Today") has no line to draw, so show the points.
+  const dot = data.length < 3;
   return (
     <div className="card chart-card">
       <div className="card-head">
@@ -16,7 +20,7 @@ export function RiskTrend({ data }: { data: Dashboard["riskTrend"] }) {
           <h2>Risk trend</h2>
           <p className="card-sub">Alerts generated · daily</p>
         </div>
-        <a className="link" href="#">View analysis <ChevronRight size={13} /></a>
+        {link && <Link className="link" to={paths.riskTrend}>View analysis <ChevronRight size={13} /></Link>}
       </div>
       <div className="legend">
         <span><span className="dot" style={{ background: "var(--critical)" }} />High risk</span>
@@ -27,11 +31,11 @@ export function RiskTrend({ data }: { data: Dashboard["riskTrend"] }) {
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data} margin={{ top: 6, right: 8, left: -22, bottom: 0 }}>
             <CartesianGrid stroke="var(--grid)" vertical={false} />
-            <XAxis dataKey="date" tick={axis} tickLine={false} axisLine={false} interval={6} />
+            <XAxis dataKey="date" tick={axis} tickLine={false} axisLine={false} interval={data.length > 10 ? 6 : 0} />
             <YAxis tick={axis} tickLine={false} axisLine={false} />
             <Tooltip />
-            <Line type="monotone" dataKey="medium" stroke="var(--medium)" strokeWidth={1.5} dot={false} strokeOpacity={0.6} />
-            <Line type="monotone" dataKey="high" stroke="var(--critical)" strokeWidth={2} dot={false} />
+            <Line type="monotone" dataKey="medium" stroke="var(--medium)" strokeWidth={1.5} dot={dot} strokeOpacity={0.6} />
+            <Line type="monotone" dataKey="high" stroke="var(--critical)" strokeWidth={2} dot={dot} />
           </LineChart>
         </ResponsiveContainer>
       </div>

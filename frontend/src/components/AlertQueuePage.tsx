@@ -1,27 +1,39 @@
 import { useState } from "react";
 import {
-  AlertTriangle, ArrowDownUp, ArrowUpRight, CheckCircle2, Clock, Download, Inbox, ListChecks, Search,
-  SlidersHorizontal, UserMinus, UserPlus,
+  AlertTriangle, ArrowDownUp, ArrowUpRight, Briefcase, CheckCircle2, Clock, Download, Inbox, ListChecks, NotebookPen,
+  Search, SlidersHorizontal, UserMinus, UserPlus,
 } from "lucide-react";
-import type { AlertQueue, QueueAlert } from "../data/types";
+import { Link, useSearchParams } from "react-router-dom";
+import type { AlertQueue, Case, QueueAlert } from "../data/types";
 import { paginate } from "../lib/alerts";
-import { formatCompactCurrency, riskBand } from "../lib/format";
+import { riskBand } from "../lib/format";
 import {
-  alertRank, applyFilters, matchesQuery, queueStats, sortByPriority, toggleId, togglePage, uniqueValues,
+  alertRank, applyFilters, caseFor, matchesQuery, queueStats, sortByPriority, toggleId, togglePage, uniqueValues,
 } from "../lib/queue";
+import { inScope, scopeOfQueueAlert } from "../lib/scope";
+import { alertPath, casePath, paths } from "../routes";
+import { useScope } from "./ScopeContext";
 import { Assignee, BulkBar, FilterSelect, QueuePager, SeverityPill, StatCards, StatusPill, Tabs } from "./QueueParts";
 
 export const QUEUE_PAGE_SIZE = 8;
 
 type TabId = "all" | "mine" | "unassigned" | "breached" | "closed";
 
-export function AlertQueuePage({ data }: { data: AlertQueue }) {
-  const { alerts, currentUser } = data;
+export function AlertQueuePage({ data, cases = [] }: { data: AlertQueue; cases?: Case[] }) {
+  const { currentUser } = data;
+  const { scope } = useScope();
+  // The header scope narrows the whole queue, so the counts follow it too.
+  const alerts = data.alerts.filter((a) => inScope(scopeOfQueueAlert(a), scope));
   const s = queueStats(alerts, currentUser);
+  // "All typologies" links here with ?typology=... to open the queue pre-filtered.
+  const [params] = useSearchParams();
 
   const [tab, setTab] = useState<TabId>("all");
   const [query, setQuery] = useState("");
-  const [filters, setFilters] = useState({ Severity: "All", Typology: "All", Status: "All", Assignee: "All" });
+  const [filters, setFilters] = useState({
+    Severity: "All", Typology: params.get("typology") ?? "All", Status: "All", Assignee: "All", Rule: "All", SLA: "All",
+  });
+  const [moreOpen, setMoreOpen] = useState(false);
   const [dir, setDir] = useState<"desc" | "asc">("desc");
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<Set<string>>(() => new Set([alerts[0]?.id].filter(Boolean)));
@@ -44,6 +56,8 @@ export function AlertQueuePage({ data }: { data: AlertQueue }) {
         { get: (a) => a.typology, value: filters.Typology },
         { get: (a) => a.status, value: filters.Status },
         { get: (a) => a.assignee ?? "Unassigned", value: filters.Assignee },
+        { get: (a) => a.rule, value: filters.Rule },
+        { get: (a) => (a.slaBreached ? "Breached" : "Within SLA"), value: filters.SLA },
       ],
     ),
     alertRank, dir,
@@ -52,6 +66,8 @@ export function AlertQueuePage({ data }: { data: AlertQueue }) {
   const pageIds = p.items.map((a) => a.id);
   const allOnPage = pageIds.length > 0 && pageIds.every((id) => selected.has(id));
   const focus = alerts.find((a) => selected.has(a.id)) ?? p.items[0];
+  const focusCase = focus && caseFor(cases, focus.entityId);
+  const extras = Number(filters.Rule !== "All") + Number(filters.SLA !== "All");
 
   return (
     <>
@@ -59,7 +75,7 @@ export function AlertQueuePage({ data }: { data: AlertQueue }) {
         { label: "Alerts awaiting triage", value: s.open, note: `+${data.newToday} today`, noteTone: "bad", sub: "Across all business units", icon: <Inbox size={13} />, tone: "teal" },
         { label: "Critical priority", value: s.critical, note: `${s.criticalUnassigned} unassigned`, noteTone: "bad", sub: "Immediate review required", icon: <AlertTriangle size={13} />, tone: "red" },
         { label: "Unassigned alerts", value: s.unassigned, note: `${s.unassignedPct}% of queue`, noteTone: "warn", sub: "Ready for analyst assignment", icon: <UserMinus size={13} />, tone: "amber" },
-        { label: "SLA breached", value: s.breached, note: `Oldest: ${data.oldestBreach}`, noteTone: "bad", sub: "Target first review: 2 hours", icon: <Clock size={13} />, tone: "red" },
+        { label: "SLA breaches", value: s.breached, note: `Oldest: ${data.oldestBreach}`, noteTone: "bad", sub: "Target first review: 2 hours", icon: <Clock size={13} />, tone: "red" },
         { label: "Median triage time", value: data.medianTriage, note: data.medianTriageDelta, noteTone: "good", sub: "vs. previous 7 days", icon: <CheckCircle2 size={13} />, tone: "teal" },
       ]} />
 
@@ -67,11 +83,13 @@ export function AlertQueuePage({ data }: { data: AlertQueue }) {
         <div className="card-head">
           <div>
             <h2>Investigation queue <span className="pill teal">{s.open} open alerts</span></h2>
-            <p className="card-sub">Prioritised by severity, SLA and model risk score · All times UTC</p>
+            <p className="card-sub">Prioritized by severity, SLA urgency and model risk score · All times UTC</p>
           </div>
           <div className="table-actions">
             <button className="btn"><Download size={13} />Export</button>
-            <button className="btn primary"><ListChecks size={13} />Review next alert</button>
+            {visible[0]
+              ? <Link className="btn primary" to={alertPath(visible[0].id)}><ListChecks size={13} />Review next alert</Link>
+              : <button className="btn primary" disabled><ListChecks size={13} />Review next alert</button>}
           </div>
         </div>
 
@@ -92,11 +110,20 @@ export function AlertQueuePage({ data }: { data: AlertQueue }) {
           <FilterSelect label="Typology" value={filters.Typology} options={uniqueValues(alerts, (a) => a.typology)} onChange={reset((v: string) => setFilters({ ...filters, Typology: v }))} />
           <FilterSelect label="Status" value={filters.Status} options={uniqueValues(alerts, (a) => a.status)} onChange={reset((v: string) => setFilters({ ...filters, Status: v }))} />
           <FilterSelect label="Assignee" value={filters.Assignee} options={uniqueValues(alerts, (a) => a.assignee ?? "Unassigned")} onChange={reset((v: string) => setFilters({ ...filters, Assignee: v }))} />
-          <button className="btn"><SlidersHorizontal size={13} />More filters</button>
+          <button className={`btn${moreOpen ? " on" : ""}`} aria-expanded={moreOpen} onClick={() => setMoreOpen(!moreOpen)}>
+            <SlidersHorizontal size={13} />More filters{extras > 0 && <span className="count-badge">{extras}</span>}
+          </button>
           <button className="btn sort" onClick={() => setDir(dir === "desc" ? "asc" : "desc")}>
             <ArrowDownUp size={13} />Priority: {dir === "desc" ? "Highest first" : "Lowest first"}
           </button>
         </div>
+
+        {moreOpen && (
+          <div className="toolbar" role="group" aria-label="More filters">
+            <FilterSelect label="Rule" value={filters.Rule} options={uniqueValues(alerts, (a) => a.rule)} onChange={reset((v: string) => setFilters({ ...filters, Rule: v }))} />
+            <FilterSelect label="SLA" value={filters.SLA} options={["Breached", "Within SLA"]} onChange={reset((v: string) => setFilters({ ...filters, SLA: v }))} />
+          </div>
+        )}
 
         <BulkBar count={selected.size} noun="alert" onClear={() => setSelected(new Set())}>
           <button className="btn small"><UserPlus size={12} />Assign to</button>
@@ -110,7 +137,7 @@ export function AlertQueuePage({ data }: { data: AlertQueue }) {
               <tr>
                 <th className="check"><input type="checkbox" aria-label="Select page" checked={allOnPage} onChange={() => setSelected(togglePage(selected, pageIds))} /></th>
                 <th>Severity</th><th>Alert ID</th><th>Customer / entity</th><th>Detection typology</th>
-                <th className="right">Amount</th><th>Score</th><th>Detected · UTC</th><th>Assignee</th><th>Status</th><th className="right">Action</th>
+                <th className="right">Amount</th><th aria-sort={dir === "desc" ? "descending" : "ascending"}>Score {dir === "desc" ? "↓" : "↑"}</th><th>Detected · UTC</th><th>Assignee</th><th>Status</th><th className="right">Action</th>
               </tr>
             </thead>
             <tbody>
@@ -128,7 +155,7 @@ export function AlertQueuePage({ data }: { data: AlertQueue }) {
                     <td><div>{a.detected}</div><div className={`entity-meta${a.slaBreached ? " bad" : ""}`}>{a.sla}</div></td>
                     <td><Assignee name={a.assignee} /></td>
                     <td><StatusPill status={a.status} /></td>
-                    <td className="right"><button className={`btn small${on ? " primary" : ""}`}><ArrowUpRight size={12} />Review</button></td>
+                    <td className="right"><Link className={`btn small${on ? " primary" : ""}`} to={alertPath(a.id)} aria-label={`Review ${a.id}`}><ArrowUpRight size={12} />Review</Link></td>
                   </tr>
                 );
               })}
@@ -146,7 +173,7 @@ export function AlertQueuePage({ data }: { data: AlertQueue }) {
           <div className="card" aria-label="Selected alert snapshot" role="region">
             <div className="card-head">
               <h2>Selected alert snapshot <span className="accent">{focus.id}</span> <span className={`score ${riskBand(focus.score)}`}><b>{focus.severity} · {focus.score}/100</b></span></h2>
-              <a className="link" href="#">Open investigation <ArrowUpRight size={12} /></a>
+              <Link className="link" to={paths.investigations}>Open investigation <ArrowUpRight size={12} /></Link>
             </div>
             <p className="narrative">{focus.narrative}</p>
             <div className="facts">
@@ -157,14 +184,10 @@ export function AlertQueuePage({ data }: { data: AlertQueue }) {
           </div>
           <div className="card" aria-label="Recommended next step" role="region">
             <h2>Recommended next step</h2>
-            <p className="narrative">
-              Review linked transfers and source-of-funds evidence for {focus.entity}
-              {focus.assignee ? `. Assigned to ${focus.assignee}` : ". Assign an analyst"}
-              {focus.slaBreached ? ", SLA already breached." : "."} Exposure {formatCompactCurrency(focus.amount)}.
-            </p>
+            <p className="narrative">{focus.nextStep}</p>
             <div className="table-actions">
-              <button className="btn">View case</button>
-              <button className="btn">Add triage note</button>
+              <Link className="btn" to={focusCase ? casePath(focusCase.id) : paths.cases}><Briefcase size={13} />{focusCase ? `View case ${focusCase.id}` : "View cases"}</Link>
+              <button className="btn"><NotebookPen size={13} />Add triage note</button>
             </div>
           </div>
         </section>

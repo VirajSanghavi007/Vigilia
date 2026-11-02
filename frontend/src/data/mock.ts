@@ -16,16 +16,16 @@ const volumeByHour = [
 ].map((value, hour) => ({ hour, value }));
 
 const alerts: Alert[] = [
-  { id: "a1", entity: "Orion Trading FZE", entityId: "ALF-55961", meta: "AE · 6 min ago", amount: 482750, score: 95, typology: "Rapid movement of funds", status: "Escalated", analyst: "M. Alvarez" },
-  { id: "a2", entity: "Kofi Mensah", entityId: "ALF-50936", meta: "GH · 14 min ago", amount: 74980, score: 91, typology: "Structuring / smurfing", status: "Unassigned", analyst: null },
-  { id: "a3", entity: "Baltic Meridian OU", entityId: "ALF-50929", meta: "EE · 23 min ago", amount: 1240000, score: 88, typology: "High-risk jurisdiction", status: "In review", analyst: "D. Chiu" },
-  { id: "a4", entity: "Rosa Delgado", entityId: "ALF-50917", meta: "PA · 41 min ago", amount: 38600, score: 84, typology: "Unusual cash activity", status: "In review", analyst: "N. Karim" },
-  { id: "a5", entity: "Harbourline Imports Ltd", entityId: "ALF-50904", meta: "HK · 1 h ago", amount: 612400, score: 79, typology: "Sanctions proximity", status: "Pending info", analyst: "A. Patel" },
-  { id: "a6", entity: "Nordvik Holdings AS", entityId: "ALF-50896", meta: "NO · 1 h ago", amount: 905300, score: 78, typology: "Rapid movement of funds", status: "Unassigned", analyst: null },
-  { id: "a7", entity: "Samir Haddad", entityId: "ALF-50881", meta: "LB · 2 h ago", amount: 49900, score: 77, typology: "Structuring / smurfing", status: "In review", analyst: "M. Alvarez" },
-  { id: "a8", entity: "Golden Reef Mining", entityId: "ALF-50874", meta: "GH · 2 h ago", amount: 2310000, score: 76, typology: "High-risk jurisdiction", status: "Escalated", analyst: "D. Chiu" },
-  { id: "a9", entity: "Lena Vogel", entityId: "ALF-50862", meta: "DE · 3 h ago", amount: 27450, score: 75, typology: "Unusual cash activity", status: "Pending info", analyst: "N. Karim" },
-  { id: "a10", entity: "Pacific Crest Shipping", entityId: "ALF-50855", meta: "SG · 3 h ago", amount: 1785000, score: 75, typology: "Sanctions proximity", status: "In review", analyst: "A. Patel" },
+  { id: "ALT-92841", entityType: "Corporate", entity: "Orion Trading FZE", entityId: "ALF-55961", meta: "AE · 6 min ago", amount: 482750, score: 95, typology: "Rapid movement of funds", status: "Escalated", analyst: "M. Alvarez" },
+  { id: "ALT-92836", entityType: "Individual", entity: "Kofi Mensah", entityId: "ALF-50936", meta: "GH · 14 min ago", amount: 74980, score: 91, typology: "Structuring / smurfing", status: "Unassigned", analyst: null },
+  { id: "ALT-92829", entityType: "Corporate", entity: "Baltic Meridian OU", entityId: "ALF-50929", meta: "EE · 23 min ago", amount: 1240000, score: 88, typology: "High-risk jurisdiction", status: "In review", analyst: "D. Chiu" },
+  { id: "ALT-92817", entityType: "Individual", entity: "Rosa Delgado", entityId: "ALF-50917", meta: "PA · 41 min ago", amount: 38600, score: 84, typology: "Unusual cash activity", status: "In review", analyst: "N. Karim" },
+  { id: "ALT-92804", entityType: "Corporate", entity: "Harbourline Imports Ltd", entityId: "ALF-50904", meta: "HK · 1 h ago", amount: 612400, score: 79, typology: "Sanctions proximity", status: "Pending info", analyst: "A. Patel" },
+  { id: "ALT-92700", entityType: "Corporate", entity: "Nordvik Holdings AS", entityId: "ALF-50896", meta: "NO · 1 h ago", amount: 905300, score: 78, typology: "Rapid movement of funds", status: "Unassigned", analyst: null },
+  { id: "ALT-92693", entityType: "Individual", entity: "Samir Haddad", entityId: "ALF-50881", meta: "LB · 2 h ago", amount: 49900, score: 77, typology: "Structuring / smurfing", status: "In review", analyst: "M. Alvarez" },
+  { id: "ALT-92686", entityType: "Corporate", entity: "Golden Reef Mining", entityId: "ALF-50874", meta: "GH · 2 h ago", amount: 2310000, score: 76, typology: "High-risk jurisdiction", status: "Escalated", analyst: "D. Chiu" },
+  { id: "ALT-92679", entityType: "Individual", entity: "Lena Vogel", entityId: "ALF-50862", meta: "DE · 3 h ago", amount: 27450, score: 75, typology: "Unusual cash activity", status: "Pending info", analyst: "N. Karim" },
+  { id: "ALT-92672", entityType: "Corporate", entity: "Pacific Crest Shipping", entityId: "ALF-50855", meta: "SG · 3 h ago", amount: 1785000, score: 75, typology: "Sanctions proximity", status: "In review", analyst: "A. Patel" },
 ];
 
 export function getDashboard(): Dashboard {

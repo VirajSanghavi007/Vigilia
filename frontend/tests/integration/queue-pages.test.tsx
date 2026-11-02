@@ -1,6 +1,7 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
+import { MemoryRouter } from "react-router-dom";
 import App from "../../src/App";
 
 // Real App + real mock data: sidebar navigation, tabs, filters, sort,
@@ -8,8 +9,8 @@ import App from "../../src/App";
 
 async function open(page: RegExp) {
   const user = userEvent.setup();
-  render(<App />);
-  await user.click(screen.getByRole("button", { name: page }));
+  render(<MemoryRouter><App /></MemoryRouter>);
+  await user.click(screen.getByRole("link", { name: page }));
   return user;
 }
 const region = (name: string) => screen.getByRole("region", { name });
@@ -20,14 +21,15 @@ describe("page switching", () => {
   it("swaps pages from the sidebar and back", async () => {
     const user = await open(/Alert queue/);
     expect(screen.queryByRole("heading", { name: /Financial Crime Overview/ })).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /Cases/ }));
+    await user.click(screen.getByRole("link", { name: /Cases/ }));
     expect(screen.getByRole("region", { name: "Case management" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /Overview/ }));
+    await user.click(screen.getByRole("link", { name: /Overview/ }));
     expect(screen.getByRole("heading", { name: /Financial Crime Overview/ })).toBeInTheDocument();
   });
-  it("shows a placeholder for undesigned pages", async () => {
+  it("has no placeholder left: every sidebar page renders its own content", async () => {
     await open(/Transactions/);
-    expect(screen.getByRole("region", { name: "Coming soon" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Coming soon" })).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Transaction monitoring" })).toBeInTheDocument();
   });
 });
 
@@ -36,29 +38,29 @@ describe("alert queue", () => {
 
   it("shows Figma counts, highest priority first, and pages through 27 alerts", async () => {
     const user = await open(/Alert queue/);
-    for (const t of ["All open 27", "My alerts 6", "Unassigned 12", "SLA breached 7", "Closed 184"]) {
+    for (const t of ["All open 27", "My alerts 6", "Unassigned 12", "SLA breached 7", "Closed 148"]) {
       expect(screen.getByRole("tab", { name: t })).toBeInTheDocument();
     }
     expect(firstId(Q)).toContain("ALT-92841");
-    expect(within(region(Q)).getByText("Showing 1-8 of 27 open alerts")).toBeInTheDocument();
+    expect(within(region(Q)).getByText("Showing 1–8 of 27 open alerts")).toBeInTheDocument();
     expect(within(region(Q)).getByRole("button", { name: "Previous page" })).toBeDisabled();
     await user.click(within(region(Q)).getByRole("button", { name: "4" }));
-    expect(within(region(Q)).getByText("Showing 25-27 of 27 open alerts")).toBeInTheDocument();
+    expect(within(region(Q)).getByText("Showing 25–27 of 27 open alerts")).toBeInTheDocument();
     await user.click(within(region(Q)).getByRole("button", { name: "Previous page" }));
-    expect(within(region(Q)).getByText("Showing 17-24 of 27 open alerts")).toBeInTheDocument();
+    expect(within(region(Q)).getByText("Showing 17–24 of 27 open alerts")).toBeInTheDocument();
   });
 
   it("tabs filter the rows and reset to page 1", async () => {
     const user = await open(/Alert queue/);
     await user.click(within(region(Q)).getByRole("button", { name: "Next page" }));
     await user.click(screen.getByRole("tab", { name: "Unassigned 12" }));
-    expect(within(region(Q)).getByText("Showing 1-8 of 12 alerts")).toBeInTheDocument();
+    expect(within(region(Q)).getByText("Showing 1–8 of 12 alerts")).toBeInTheDocument();
     for (const r of rows(Q)) expect(within(r).getByText("Unassigned")).toBeInTheDocument();
     await user.click(screen.getByRole("tab", { name: "My alerts 6" }));
     expect(rows(Q)).toHaveLength(6);
     await user.click(screen.getByRole("tab", { name: "SLA breached 7" }));
     expect(rows(Q)).toHaveLength(7);
-    await user.click(screen.getByRole("tab", { name: "Closed 184" }));
+    await user.click(screen.getByRole("tab", { name: "Closed 148" }));
     expect(within(region(Q)).getByText(/Closed alerts are archived/)).toBeInTheDocument();
   });
 
@@ -66,7 +68,7 @@ describe("alert queue", () => {
     const user = await open(/Alert queue/);
     await user.click(within(region(Q)).getByRole("button", { name: "Next page" }));
     await user.selectOptions(screen.getByRole("combobox", { name: "Severity" }), "Critical");
-    expect(within(region(Q)).getByText("Showing 1-8 of 9 open alerts")).toBeInTheDocument();
+    expect(within(region(Q)).getByText("Showing 1–8 of 9 open alerts")).toBeInTheDocument();
     await user.selectOptions(screen.getByRole("combobox", { name: "Assignee" }), "Unassigned");
     expect(rows(Q)).toHaveLength(3);
     await user.type(screen.getByRole("textbox", { name: "Search queue" }), "kofi");
@@ -79,7 +81,7 @@ describe("alert queue", () => {
     const user = await open(/Alert queue/);
     await user.click(within(region(Q)).getByRole("button", { name: "Next page" }));
     await user.type(screen.getByRole("textbox", { name: "Search queue" }), "ALT-92");
-    expect(within(region(Q)).getByText("Showing 1-8 of 27 open alerts")).toBeInTheDocument();
+    expect(within(region(Q)).getByText("Showing 1–8 of 27 open alerts")).toBeInTheDocument();
     expect(within(region(Q)).getByRole("button", { name: "Previous page" })).toBeDisabled();
   });
 
@@ -107,13 +109,13 @@ describe("alert queue", () => {
     expect(within(region("Selected alert snapshot")).getByText("ALT-92841")).toBeInTheDocument();
     await user.click(screen.getByRole("checkbox", { name: "Select ALT-92841" }));
     expect(screen.queryByText(/selected$/)).not.toBeInTheDocument();
-    await user.click(screen.getByRole("checkbox", { name: "Select ALT-92838" }));
-    expect(within(region("Selected alert snapshot")).getByText("ALT-92838")).toBeInTheDocument();
+    await user.click(screen.getByRole("checkbox", { name: "Select ALT-92836" }));
+    expect(within(region("Selected alert snapshot")).getByText("ALT-92836")).toBeInTheDocument();
     await user.click(screen.getByRole("checkbox", { name: "Select page" }));
     expect(screen.getByText("8 alerts selected")).toBeInTheDocument();
     await user.click(screen.getByRole("checkbox", { name: "Select page" }));
     expect(screen.queryByText(/alerts? selected/)).not.toBeInTheDocument();
-    await user.click(screen.getByRole("checkbox", { name: "Select ALT-92756" }));
+    await user.click(screen.getByRole("checkbox", { name: "Select ALT-92796" }));
     await user.click(screen.getByRole("button", { name: "Clear selection" }));
     expect(screen.queryByText(/alerts? selected/)).not.toBeInTheDocument();
   });
@@ -129,9 +131,9 @@ describe("cases", () => {
       expect(screen.getByRole("tab", { name: t })).toBeInTheDocument();
     }
     expect(firstId(C)).toContain("AML-4821");
-    expect(within(region(C)).getByText("Showing 1-8 of 14 open cases")).toBeInTheDocument();
+    expect(within(region(C)).getByText("Showing 1–8 of 14 open cases")).toBeInTheDocument();
     await user.click(within(region(C)).getByRole("button", { name: "Next page" }));
-    expect(within(region(C)).getByText("Showing 9-14 of 14 open cases")).toBeInTheDocument();
+    expect(within(region(C)).getByText("Showing 9–14 of 14 open cases")).toBeInTheDocument();
     expect(within(region("Investigator workload")).getByText(/12 assigned cases across 4 investigators/)).toBeInTheDocument();
     expect(within(region("Investigator workload")).getByText(/1 critical case is unassigned/)).toBeInTheDocument();
   });
@@ -169,7 +171,7 @@ describe("cases", () => {
     const user = await open(/Cases/);
     await user.click(within(region(C)).getByRole("button", { name: "Next page" }));
     await user.type(screen.getByRole("textbox", { name: "Search cases" }), "AML-4");
-    expect(within(region(C)).getByText("Showing 1-8 of 14 open cases")).toBeInTheDocument();
+    expect(within(region(C)).getByText("Showing 1–8 of 14 open cases")).toBeInTheDocument();
   });
 
   it("selection, bulk bar and sort toggle", async () => {

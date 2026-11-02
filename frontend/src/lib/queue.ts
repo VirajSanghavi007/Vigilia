@@ -25,7 +25,8 @@ export function sortByPriority<T>(items: T[], rank: (item: T) => number, dir: "d
 
 /** Severity first, model score as the tie-breaker. */
 export const alertRank = (a: QueueAlert) => SEVERITY_RANK[a.severity] * 1000 + a.score;
-export const caseRank = (c: Case) => SEVERITY_RANK[c.priority] * 1000 + (c.overdue ? 100 : 0) + (c.dueToday ? 10 : 0);
+// "Due today" only lifts cases that are not already overdue; overdue cases keep stored (oldest-breach-first) order.
+export const caseRank = (c: Case) => SEVERITY_RANK[c.priority] * 1000 + (c.overdue ? 100 : c.dueToday ? 10 : 0);
 
 /** Add or remove one id from a selection. */
 export function toggleId(selected: Set<string>, id: string): Set<string> {
@@ -92,4 +93,9 @@ export function workload(cases: Case[]): { name: string; count: number }[] {
   const counts = new Map<string, number>();
   for (const c of cases) if (c.investigator) counts.set(c.investigator, (counts.get(c.investigator) ?? 0) + 1);
   return [...counts].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
+}
+
+/** The open case for a customer, so an alert can link straight to it. */
+export function caseFor(cases: Case[], entityId: string): Case | undefined {
+  return cases.find((c) => c.entityId === entityId);
 }

@@ -16,9 +16,11 @@ export interface Kpi {
 }
 
 export interface Alert {
+  /** The queue alert this row opens, e.g. ALT-92841. */
   id: string;
   entity: string;
   entityId: string;
+  entityType: "Corporate" | "Individual";
   meta: string;
   amount: number;
   score: number;
@@ -74,6 +76,8 @@ export interface QueueAlert {
   narrative: string;
   customerRisk: string;
   linked: string;
+  /** Recommended next step shown beside the snapshot. */
+  nextStep: string;
 }
 
 export interface AlertQueue {

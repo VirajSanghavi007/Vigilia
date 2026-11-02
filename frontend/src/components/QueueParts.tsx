@@ -27,14 +27,14 @@ export function StatCards({ cards, label }: { cards: StatCard[]; label: string }
   );
 }
 
-export interface Tab { id: string; label: string; count: number }
+export interface Tab { id: string; label: string; count?: number | string }
 
 export function Tabs({ tabs, active, onChange }: { tabs: Tab[]; active: string; onChange: (id: string) => void }) {
   return (
     <div className="tabs" role="tablist">
       {tabs.map((t) => (
         <button key={t.id} role="tab" aria-selected={t.id === active} className={t.id === active ? "active" : undefined} onClick={() => onChange(t.id)}>
-          {t.label} <span className="tab-count">{t.count}</span>
+          {t.label}{t.count !== undefined && <> <span className="tab-count">{t.count}</span></>}
         </button>
       ))}
     </div>
@@ -65,12 +65,12 @@ export function BulkBar({ count, noun, onClear, children }: { count: number; nou
   );
 }
 
-export function QueuePager<T>({ p, total, noun, pageSize, onPage }: { p: Page<T>; total: number; noun: string; pageSize: number; onPage: (n: number) => void }) {
+export function QueuePager<T>({ p, total, noun, pageSize, onPage }: { p: Page<T>; total: number | string; noun: string; pageSize: number; onPage: (n: number) => void }) {
   return (
     <div className="table-foot">
-      <span>Showing {p.start}-{p.end} of {total} {noun}</span>
+      <span>Showing {p.start}–{p.end} of {total} {noun}</span>
       <div className="pager">
-        <span className="rows-per-page">Rows per page {pageSize}</span>
+        <span className="rows-per-page">Rows per page: {pageSize}</span>
         <button aria-label="Previous page" disabled={p.page <= 1} onClick={() => onPage(p.page - 1)}><ChevronLeft size={13} /></button>
         {Array.from({ length: p.pageCount }, (_, i) => i + 1).map((n) => (
           <button key={n} className={n === p.page ? "current" : undefined} aria-current={n === p.page ? "page" : undefined} onClick={() => onPage(n)}>{n}</button>
@@ -96,6 +96,10 @@ export function Assignee({ name }: { name: string | null }) {
 const statusClass: Record<string, string> = {
   Escalated: "escalated", New: "new", "In review": "review", "In progress": "review",
   "Pending info": "pending", "Pending approval": "approval",
+  Flagged: "escalated", "On hold": "pending", Cleared: "cleared", "EDD required": "escalated", "Documents due": "pending",
+  "Review due": "unassigned", Verified: "cleared", Draft: "pending", Approved: "approval", Submitted: "review",
+  Accepted: "cleared", Active: "cleared", Testing: "approval", Success: "cleared", Denied: "escalated", Pending: "pending",
+  "Active in production": "cleared", "Shadow testing": "approval",
 };
 
 export function StatusPill({ status }: { status: string }) {

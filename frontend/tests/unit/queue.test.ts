@@ -9,7 +9,7 @@ import {
 const alert = (over: Partial<QueueAlert>): QueueAlert => ({
   id: "A", entity: "E", entityId: "C-1", entityType: "", severity: "High", typology: "T", rule: "", amount: 1,
   txCount: 1, score: 50, detected: "", sla: "", slaBreached: false, assignee: null, status: "New",
-  narrative: "", customerRisk: "", linked: "", ...over,
+  narrative: "", customerRisk: "", linked: "", nextStep: "", ...over,
 });
 const kase = (over: Partial<Case>): Case => ({
   id: "K", opened: "", entity: "E", entityId: "", entityType: "", type: "T", typeSub: "", priority: "High",
@@ -52,6 +52,10 @@ describe("sortByPriority and ranks", () => {
   it("ranks cases by priority, then overdue, then due today", () => {
     const cs = [kase({ id: "plain" }), kase({ id: "today", dueToday: true }), kase({ id: "late", overdue: true }), kase({ id: "crit", priority: "Critical" })];
     expect(sortByPriority(cs, caseRank, "desc").map((c) => c.id)).toEqual(["crit", "late", "today", "plain"]);
+  });
+  it("does not let due-today reorder cases that are already overdue", () => {
+    const cs = [kase({ id: "late18h", overdue: true }), kase({ id: "late1h", overdue: true, dueToday: true })];
+    expect(sortByPriority(cs, caseRank, "desc").map((c) => c.id)).toEqual(["late18h", "late1h"]);
   });
 });
 
@@ -118,14 +122,14 @@ describe("mock data matches the Figma frames", () => {
     });
     expect(new Set(q.alerts.map((a) => a.id)).size).toBe(27);
   });
-  it("cases: 14 open, 3 critical (1 overdue), 2 unassigned, 4 due today, 2 overdue, 4 mine", () => {
+  it("cases: 14 open, 3 critical (2 overdue, as in the Figma rows), 2 unassigned, 4 due today, 2 overdue, 4 mine", () => {
     const c = getCases();
     expect(caseStats(c.cases, c.currentUser)).toMatchObject({
-      open: 14, critical: 3, criticalOverdue: 1, unassigned: 2, unassignedPct: 14, dueToday: 4,
+      open: 14, critical: 3, criticalOverdue: 2, unassigned: 2, unassignedPct: 14, dueToday: 4,
       dueTodayAwaitingApproval: 1, pendingApproval: 2, overdue: 2, mine: 4,
     });
     expect(workload(c.cases)).toEqual([
-      { name: "D. Chiu", count: 3 }, { name: "M. Alvarez", count: 3 }, { name: "A. Patel", count: 4 }, { name: "N. Karim", count: 2 },
+      { name: "D. Cho", count: 3 }, { name: "M. Alvarez", count: 3 }, { name: "A. Patel", count: 4 }, { name: "N. Karim", count: 2 },
     ].sort((a, b) => b.count - a.count));
   });
 });

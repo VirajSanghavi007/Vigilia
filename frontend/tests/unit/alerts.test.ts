@@ -3,7 +3,7 @@ import type { Alert } from "../../src/data/types";
 import { filterAlerts, paginate } from "../../src/lib/alerts";
 
 const mk = (id: string, over: Partial<Alert> = {}): Alert => ({
-  id, entity: `Entity ${id}`, entityId: `ALF-${id}`, meta: "", amount: 1, score: 50,
+  id, entity: `Entity ${id}`, entityId: `ALF-${id}`, entityType: "Corporate", meta: "", amount: 1, score: 50,
   typology: "Structuring / smurfing", status: "In review", analyst: "D. Chiu", ...over,
 });
 
