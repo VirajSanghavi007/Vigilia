@@ -9,7 +9,14 @@ where python >nul 2>&1 || (echo ERROR: python not found on PATH. & goto :fail)
 
 docker info >nul 2>&1 && goto :docker_up
 echo Docker is not running, starting Docker Desktop...
-start "" "%ProgramFiles%\Docker\Docker\Docker Desktop.exe"
+rem Docker Desktop installs per-user (%LOCALAPPDATA%\Programs) or for all
+rem users (Program Files). Its docker.exe sits in <install>\resources\bin.
+set "DD_EXE="
+for /f "delims=" %%D in ('where docker.exe 2^>nul') do if not defined DD_EXE if exist "%%~dpD..\..\Docker Desktop.exe" set "DD_EXE=%%~dpD..\..\Docker Desktop.exe"
+if not defined DD_EXE if exist "%LOCALAPPDATA%\Programs\DockerDesktop\Docker Desktop.exe" set "DD_EXE=%LOCALAPPDATA%\Programs\DockerDesktop\Docker Desktop.exe"
+if not defined DD_EXE if exist "%ProgramFiles%\Docker\Docker\Docker Desktop.exe" set "DD_EXE=%ProgramFiles%\Docker\Docker\Docker Desktop.exe"
+if not defined DD_EXE (echo ERROR: Docker Desktop.exe not found. Start Docker Desktop yourself and rerun. & goto :fail)
+start "" "%DD_EXE%"
 set /a tries=0
 :wait_docker
 timeout /t 3 /nobreak >nul
