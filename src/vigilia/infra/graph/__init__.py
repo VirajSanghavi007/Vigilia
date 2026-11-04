@@ -12,8 +12,9 @@ import os
 from functools import lru_cache
 
 from .memgraph_client import MemgraphStore
+from .memgraph_query import MemgraphQueryStore
 
-__all__ = ["MemgraphStore", "get_graph_store"]
+__all__ = ["MemgraphQueryStore", "MemgraphStore", "get_graph_query_store", "get_graph_store"]
 
 
 @lru_cache
@@ -25,3 +26,11 @@ def get_graph_store() -> MemgraphStore:
     # a one-time cost on first use, not per-request.
     store.ensure_constraints()
     return store
+
+
+@lru_cache
+def get_graph_query_store() -> MemgraphQueryStore:
+    # Same Memgraph as get_graph_store(), but its own read-only client for
+    # the explorer (see memgraph_query.py). No ensure_constraints(): the
+    # read side must not issue schema writes.
+    return MemgraphQueryStore(os.environ.get("MEMGRAPH_URI", "bolt://localhost:7687"))

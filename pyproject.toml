@@ -16,6 +16,8 @@ dependencies = [
     "psycopg2-binary",
     "argon2-cffi",
     "neo4j==5.28.1",
+    "anthropic==2.3.0",
+    "pyarrow==26.0.0",
 ]
 
 [project.optional-dependencies]
